@@ -7,10 +7,7 @@ import io
 import base64
 from datetime import datetime
 import plotly.express as px
-import plotly.graph_objects as go
 from PIL import Image
-import requests
-import json
 
 # --- 1. SETTINGS & STYLE ---
 st.set_page_config(page_title="PCBA System 2026 PRO", layout="wide")
@@ -19,19 +16,10 @@ st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     .stMetric { 
-        background-color: #ffffff; 
-        padding: 20px; 
-        border-radius: 12px; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border: 1px solid #eee;
+        background-color: #ffffff; padding: 20px; border-radius: 12px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eee;
     }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #ffffff;
-        border-radius: 8px 8px 0px 0px;
-        padding: 10px 20px;
-        border: 1px solid #eee;
-    }
     .stTabs [aria-selected="true"] { background-color: #004a99 !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -58,12 +46,14 @@ def get_df(sheet_name):
     try:
         ws = ss.worksheet(sheet_name)
         data = ws.get_all_records()
-        return pd.DataFrame(data) if data else pd.DataFrame()
+        df = pd.DataFrame(data)
+        if not df.empty:
+            df.columns = df.columns.str.strip()
+        return df
     except:
         return pd.DataFrame()
 
 
-# ฟังก์ชันจัดการตัวเลือก Dropdown (ต้องมีเพื่อให้ User/Tech ทำงานได้)
 def get_dropdown_options(sheet_name):
     df = get_df(sheet_name)
     options = ["--กรุณาเลือก--"]
@@ -72,45 +62,58 @@ def get_dropdown_options(sheet_name):
     return options
 
 
-def save_image_b64(file):
+def save_image_b64(file, size=(400, 400), quality=40):
     if not file: return ""
     img = Image.open(file)
-    img.thumbnail((450, 450))
+    img.thumbnail(size)
     buf = io.BytesIO()
-    img.convert('RGB').save(buf, format="JPEG", quality=60)
+    img.convert('RGB').save(buf, format="JPEG", quality=quality, optimize=True)
     return base64.b64encode(buf.getvalue()).decode()
+
+
+def save_multiple_images_b64(files):
+    if not files: return ""
+    b64_list = []
+    current_length = 0
+    for file in files:
+        b64_str = save_image_b64(file, size=(350, 350), quality=35)
+        if current_length + len(b64_str) < 48000:  # Google Sheets Cell Limit Guard
+            b64_list.append(b64_str)
+            current_length += len(b64_str) + 1
+        else:
+            st.warning("⚠️ บางรูปถูกข้ามเนื่องจากขนาดข้อมูลใกล้เต็มขีดจำกัด")
+            break
+    return ",".join(b64_list)
 
 
 def calculate_tat(row):
     try:
-        if row['user_time'] and row['tech_time']:
-            fmt = "%Y-%m-%d %H:%M"
-            start = datetime.strptime(str(row['user_time']), fmt)
-            end = datetime.strptime(str(row['tech_time']), fmt)
-            diff = end - start
-            return round(diff.total_seconds() / 3600, 2)
+        fmt = "%Y-%m-%d %H:%M"
+        start = datetime.strptime(str(row['user_time']), fmt)
+        end = datetime.strptime(str(row['tech_time']), fmt)
+        return round((end - start).total_seconds() / 3600, 2)
     except:
-        pass
-    return None
+        return None
 
 
-# --- 3. SIDEBAR & LOGIN ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     if status_conn:
         st.success("● System Online")
     else:
         st.error("○ System Offline")
 
-    if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-    if st.session_state.logged_in:
-        st.info(f"User: {st.session_state.user}\nRole: {st.session_state.role}")
+    if st.session_state.get('logged_in'):
+        st.info(f"👤 **User:** {st.session_state.user}\n🔐 **Role:** {st.session_state.role}")
         if st.button("🚪 Logout"):
             st.session_state.logged_in = False
             st.rerun()
 
+# --- 4. LOGIN ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if not st.session_state.logged_in:
-    st.title("🔐 Login PCBA PRO")
-    with st.form("login"):
+    st.title("🔐 Login PCBA PRO 2026")
+    with st.form("login_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
         if st.form_submit_button("เข้าสู่ระบบ"):
@@ -120,160 +123,295 @@ if not st.session_state.logged_in:
                 st.session_state.update({"logged_in": True, "user": u, "role": match.iloc[0]['role']})
                 st.rerun()
             else:
-                st.error("ข้อมูลไม่ถูกต้อง")
+                st.error("Username หรือ Password ไม่ถูกต้อง")
     st.stop()
 
 role = st.session_state.role.lower()
 
 # ---------------- [SECTION: ADMIN] ----------------
 if role == "admin":
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
+    tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
     df_main = get_df("sheet1")
+    df_m = get_df("model_mat")
 
-    with tab1:
-        if not df_main.empty:
-            df_main['dt'] = pd.to_datetime(df_main['user_time'])
-            df_main['date_only'] = df_main['dt'].dt.date
-            col_d1, col_d2 = st.columns([2, 1])
-            with col_d1:
-                dr = st.date_input("Filter Range", [df_main['date_only'].min(), df_main['date_only'].max()])
-            with col_d2:
-                if st.button("🔄 Refresh Data"):
-                    st.cache_resource.clear();
-                    st.rerun()
+    with tabs[0]:  # Dashboard
 
-            df_f = df_main[
-                (df_main['date_only'] >= dr[0]) & (df_main['date_only'] <= (dr[1] if len(dr) > 1 else dr[0]))].copy()
-            df_f['tat'] = df_f.apply(calculate_tat, axis=1)
+            st.subheader("📊 Repair Insight Dashboard")
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Jobs", len(df_f))
-            m2.metric("Pending", len(df_f[df_f['status'] == 'Pending']))
-            m3.metric("Avg TAT", f"{df_f['tat'].mean():.1f} Hr" if not df_f['tat'].empty else "N/A")
-            m4.metric("Scrap Rate",
-                      f"{(len(df_f[df_f['status'] == 'Scrapped']) / len(df_f) * 100):.1f}%" if len(df_f) > 0 else "0%")
+            if not df_main.empty:
+                # กรองเฉพาะรายการที่ซ่อมเสร็จแล้วเพื่อนำมาวิเคราะห์
+                df_comp = df_main[df_main['status'].isin(['Completed', 'Scrapped'])].copy()
 
-            st.subheader("🔥 Repair Load Heatmap")
-            df_f['hour'] = df_f['dt'].dt.hour
-            df_f['day'] = df_f['dt'].dt.day_name()
-            heatmap_data = df_f.groupby(['day', 'hour']).size().unstack(fill_value=0)
-            st.plotly_chart(px.imshow(heatmap_data, color_continuous_scale='Blues'), use_container_width=True)
-    # --- TAB 2: MASTER DATA (User & Model) ---
-    with tab2:
-        st.subheader("👥 การจัดการข้อมูลผู้ใช้งานและโมเดลสินค้า")
-        target_sheet = st.selectbox("เลือกข้อมูลที่ต้องการจัดการ", ["users", "model_mat"])
+                # --- ส่วนที่ 1: การแสดง Metrics หลัก ---
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total Requests", len(df_main))
+                m2.metric("Pending Work", len(df_main[df_main['status'] == 'Pending']))
+                m3.metric("Completed", len(df_main[df_main['status'] == 'Completed']))
+                # คำนวณ % การซ่อมสำเร็จ
+                success_rate = (len(df_main[df_main['status'] == 'Completed']) / len(df_main) * 100) if len(
+                    df_main) > 0 else 0
+                m4.metric("Success Rate", f"{success_rate:.1f}%")
 
-        df_edit = get_df(target_sheet)
-        if not df_edit.empty:
-            # ใช้ st.data_editor เพื่อให้ Admin สามารถแก้ไขข้อมูลบนหน้าเว็บได้ทันที
-            edited_df = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True,
-                                       key=f"edit_{target_sheet}")
+                st.divider()
 
-            if st.button(f"💾 บันทึกการเปลี่ยนแปลงใน {target_sheet}"):
-                try:
-                    ws_target = ss.worksheet(target_sheet)
-                    ws_target.clear()  # ล้างข้อมูลเก่า
-                    # บันทึกข้อมูลใหม่รวมถึง Header
-                    ws_target.update([edited_df.columns.values.tolist()] + edited_df.values.tolist())
-                    st.success("บันทึกข้อมูลเรียบร้อยแล้ว!")
-                    st.cache_resource.clear()  # ล้าง Cache เพื่อให้ดึงข้อมูลใหม่มาใช้ทันที
-                except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาด: {e}")
+                # --- ส่วนที่ 2: กราฟ Classification และ Remark ---
+                col_left, col_right = st.columns(2)
 
-    # --- TAB 3: DROPDOWNS ---
-    with tab3:
-        st.subheader("🔻 ตั้งค่ารายการตัวเลือก (Dropdown Lists)")
-        # ดึงชื่อแผ่นงานที่เกี่ยวข้องกับ Dropdown ทั้งหมด
-        drop_sheets = ["station_dropdowns", "defect_dropdowns", "action_dropdowns", "classification_dropdowns"]
-        selected_drop = st.selectbox("เลือกรายการที่ต้องการแก้ไข", drop_sheets)
+                with col_left:
+                    st.markdown("##### 📌 สัดส่วนการจำแนกปัญหา (Classification)")
+                    if not df_comp.empty and 'classification' in df_comp.columns:
+                        # สร้างกราฟวงกลมแสดงสัดส่วน Classification
+                        fig_class = px.pie(
+                            df_comp,
+                            names='classification',
+                            hole=0.4,
+                            color_discrete_sequence=px.colors.qualitative.Safe
+                        )
+                        fig_class.update_layout(height=400, margin=dict(t=0, b=0, l=0, r=0))
+                        st.plotly_chart(fig_class, use_container_width=True)
+                    else:
+                        st.info("💡 รอข้อมูลการซ่อมเพื่อแสดงกราฟ Classification")
 
-        df_drop = get_df(selected_drop)
-        if not df_drop.empty:
-            # ตารางสำหรับแก้ไขตัวเลือก
-            edited_drop = st.data_editor(df_drop, num_rows="dynamic", use_container_width=True,
-                                         key=f"edit_{selected_drop}")
+                with col_right:
+                    st.markdown("##### 📝 สรุปบันทึกเพิ่มเติม (Top Remarks)")
+                    if not df_comp.empty and 'remark' in df_comp.columns:
+                        # นับจำนวน Remark ที่เกิดขึ้นบ่อย
+                        # กรองค่าว่างออกก่อนนับ
+                        df_remark = df_comp[df_comp['remark'].str.strip() != ""]
+                        remark_counts = df_remark['remark'].value_counts().reset_index().head(10)
+                        remark_counts.columns = ['Remark', 'Count']
 
-            if st.button(f"💾 อัปเดตรายการ {selected_drop}"):
-                try:
-                    ws_drop = ss.worksheet(selected_drop)
-                    ws_drop.clear()
-                    ws_drop.update([edited_drop.columns.values.tolist()] + edited_drop.values.tolist())
-                    st.success("อัปเดตรายการสำเร็จ!")
-                    st.cache_resource.clear()
-                except Exception as e:
-                    st.error(f"ไม่สามารถบันทึกได้: {e}")
-    with tab4:
-        st.subheader("🔍 Repair View")
-        df_m = get_df("model_mat")
+                        # สร้างกราฟแท่งแนวนอน
+                        fig_remark = px.bar(
+                            remark_counts,
+                            y='Remark',
+                            x='Count',
+                            orientation='h',
+                            color='Count',
+                            color_continuous_scale='Viridis'
+                        )
+                        fig_remark.update_layout(height=400, margin=dict(t=0, b=0, l=0, r=0))
+                        st.plotly_chart(fig_remark, use_container_width=True)
+                    else:
+                        st.info("💡 รอข้อมูลการซ่อมเพื่อแสดงกราฟ Remark")
+
+                st.divider()
+
+                # --- ส่วนที่ 3: สรุปตาม Defect Type ---
+                st.markdown("##### 🔍 ประเภท Defect ที่พบบ่อย (Defect Type Summary)")
+                if not df_comp.empty:
+                    defect_data = df_comp['defect_type'].value_counts().reset_index()
+                    defect_data.columns = ['Defect Type', 'Total']
+                    fig_defect = px.bar(defect_data, x='Defect Type', y='Total', color='Defect Type')
+                    st.plotly_chart(fig_defect, use_container_width=True)
+
+            else:
+                st.warning("⚠️ ไม่พบข้อมูลในระบบ")
+
+    with tabs[1]:  # Master Data
+        sub_target = st.selectbox("จัดการข้อมูล", ["users", "model_mat"])
+        df_edit = get_df(sub_target)
+        edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
+        if st.button(f"💾 Save {sub_target}"):
+            ws = ss.worksheet(sub_target)
+            ws.clear()
+            ws.update([edited.columns.values.tolist()] + edited.values.tolist())
+            st.success("บันทึกสำเร็จ!")
+
+    with tabs[2]:  # Dropdowns
+        drop_sheet = st.selectbox("เลือกรายการ Dropdown", ["station_dropdowns", "defect_dropdowns", "action_dropdowns",
+                                                           "classification_dropdowns"])
+        df_drop = get_df(drop_sheet)
+        edited_drop = st.data_editor(df_drop, num_rows="dynamic", use_container_width=True)
+        if st.button(f"💾 Update {drop_sheet}"):
+            ws = ss.worksheet(drop_sheet)
+            ws.clear()
+            ws.update([edited_drop.columns.values.tolist()] + edited_drop.values.tolist())
+            st.success("อัปเดตเรียบร้อย!")
+
+    with tabs[3]:  # Repair View
         if not df_main.empty:
             df_v = df_main.merge(df_m[['model', 'product_name']], on='model', how='left')
             st.dataframe(df_v, use_container_width=True, hide_index=True)
-            st.download_button("📥 Download CSV", df_v.to_csv(index=False).encode('utf-8-sig'), "report.csv", "text/csv")
 
-    with tab5:
-        st.subheader("📸 QA Gallery")
-        search_sn = st.text_input("Enter SN to Compare").upper()
-        gal = df_main[df_main['sn'] == search_sn] if search_sn else df_main.tail(6)
-        for _, r in gal.iterrows():
-            with st.expander(f"📦 SN: {r['sn']} | {r['status']}"):
-                c1, c2 = st.columns(2)
-                if r['img_user']: c1.image(f"data:image/jpeg;base64,{r['img_user']}", caption="Before")
-                if r['img_tech']: c2.image(f"data:image/jpeg;base64,{r['img_tech']}", caption="After")
+    with tabs[4]:  # QA Gallery
+            st.subheader("📸 QA Gallery & Inspection")
+            search_sn = st.text_input("🔍 Search SN to Inspect", placeholder="พิมพ์ SN ที่ต้องการตรวจสอบ...").upper()
 
-# ---------------- [SECTION: TECHNICIAN] ----------------
+            # กรองข้อมูลตาม SN หรือแสดง 10 รายการล่าสุด
+            gal = df_main[df_main['sn'] == search_sn] if search_sn else df_main.tail(10)
+
+            if gal.empty:
+                st.warning("ไม่พบข้อมูลที่ค้นหา")
+            else:
+                for _, r in gal.iterrows():
+                    # แสดงหัวข้อด้วย SN และสถานะ
+                    status_color = "🟢" if r['status'] == "Completed" else "🔴" if r['status'] == "Scrapped" else "🟡"
+                    with st.expander(f"📦 SN: {r['sn']} | Status: {status_color} {r['status']}"):
+
+                        # --- ส่วนที่ 1: รายละเอียดงานเสีย (Symptom Details) ---
+                        st.markdown("#### 📝 รายละเอียดงานเสีย")
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.write(f"**Model:** {r.get('model', 'N/A')}")
+                            st.write(f"**Station:** {r.get('station', 'N/A')}")
+                        with c2:
+                            st.write(f"**Reported Time:** {r.get('user_time', 'N/A')}")
+                            st.write(f"**Repair Time:** {r.get('tech_time', 'N/A')}")
+                        with c3:
+                            st.info(f"**Symptom:** {r.get('failure', 'N/A')}")
+
+                        st.divider()
+
+                        st.markdown("#### 🔧 บันทึกการแก้ไขโดย Technician")
+
+                        # เพิ่ม CSS เพื่อบังคับให้ตัวเลขและข้อความใน Metric เป็นสีดำ (หรือสีที่คุณต้องการ)
+                        st.markdown("""
+                                <style>
+                                [data-testid="stMetricValue"] {
+                                    color: #000000 !important;
+                                }
+                                [data-testid="stMetricLabel"] {
+                                    color: #333333 !important;
+                                }
+                                </style>
+                                """, unsafe_allow_html=True)
+
+                        ca, cb, cc = st.columns(3)
+                        # แสดงข้อมูลการซ่อมที่บันทึกไว้ใน Sheet
+                        ca.metric("Real Case", r.get('real_case', '-'))
+                        cb.metric("Defect Type", r.get('defect_type', '-'))
+                        cc.metric("Action", r.get('action', '-'))
+
+                        if r.get('remark'):
+                            st.warning(f"**Remark:** {r['remark']}")
+
+                        st.divider()
+
+                        # --- ส่วนที่ 3: รูปภาพหลักฐาน (Evidence) ---
+                        st.markdown("#### 🖼 Evidence Photos")
+                        col_u, col_t = st.columns(2)
+
+                        with col_u:
+                            st.write("📸 **User (Before)**")
+                            if r.get('img_user'):
+                                st.image(f"data:image/jpeg;base64,{r['img_user']}", use_container_width=True)
+                            else:
+                                st.caption("ไม่มีรูปภาพจาก User")
+
+                        with col_t:
+                            st.write("🛠 **Technician (After)**")
+                            if r.get('img_tech'):
+                                # แยกรูปภาพกรณีมีหลายรูป (Comma Separated Base64)
+                                tech_imgs = str(r['img_tech']).split(",")
+                                for b64_img in tech_imgs:
+                                    if b64_img:
+                                        st.image(f"data:image/jpeg;base64,{b64_img}", use_container_width=True)
+                            else:
+                                st.caption("ไม่มีรูปภาพการซ่อม")
+
+# ---------------- [SECTION: TECHNICIAN - MULTI-JOB SUPPORT] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
     target_sn = st.text_input("🔍 Scan Serial Number (SN)").upper()
+
     if target_sn:
         df_main = get_df("sheet1")
-        job = df_main[(df_main['sn'] == target_sn) & (df_main['status'] == 'Pending')].tail(1)
-        if not job.empty:
-            st.info(f"**Model:** {job.iloc[0]['model']} | **Symptom:** {job.iloc[0]['failure']}")
+        # 1. ค้นหาทุกรายการที่มี SN ตรงกัน
+        all_jobs = df_main[df_main['sn'] == target_sn].copy()
+
+        if not all_jobs.empty:
+            st.subheader(f"📋 รายการทั้งหมดสำหรับ SN: {target_sn}")
+
+            # 2. เตรียมรายการตัวเลือกพร้อมแยกสถานะด้วยสี
+            options = []
+            for i, r in all_jobs.iterrows():
+                # กำหนด Icon ตามสถานะ
+                status_icon = "🔴 Pending" if r['status'] == "Pending" else "🟢 Completed"
+                # สร้าง Label ที่ระบุ Model และ Station เพื่อการเลือกที่ถูกต้อง
+                label = f"แถว {i + 2} | {status_icon} | Model: {r['model']} | Station: {r['station']} | Symptom: {r['failure']}"
+                options.append((i + 2, label))
+
+                # 3. ให้ช่างเลือกรายการที่ต้องการดำเนินการ
+            selected_item = st.radio(
+                "กรุณาเลือกรายการที่ต้องการดำเนินการ:",
+                options,
+                format_func=lambda x: x[1]
+            )
+
+            # ดึงข้อมูลแถวที่เลือกมาใช้งาน
+            selected_row = selected_item[0]
+            job = all_jobs.loc[selected_row - 2]
+
+            st.divider()
+            st.success(f"🛠 กำลังจัดการข้อมูลใน **แถวที่ {selected_row}**")
+
+            # แสดงภาพประกอบจาก User (ถ้ามี)
+            if job.get('img_user'):
+                st.image(f"data:image/jpeg;base64,{job['img_user']}", width=350, caption="อาการเสียที่แจ้งโดย User")
+
+            # 4. ฟอร์มสำหรับบันทึกผลการซ่อม
             with st.form("repair_result"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    real_case = st.text_input("Real Case")
+                c1, c2 = st.columns(2)
+                with c1:
+                    real_case = st.text_input("Real Case / Root Cause", value=job.get('real_case', ''))
                     defect = st.selectbox("Defect Type", get_dropdown_options("defect_dropdowns"))
-                with col2:
+                with c2:
                     action = st.selectbox("Action Taken", get_dropdown_options("action_dropdowns"))
                     classify = st.selectbox("Classification", get_dropdown_options("classification_dropdowns"))
-                status = st.radio("Repair Result", ["Completed", "Scrapped"], horizontal=True)
-                t_file = st.file_uploader("Upload Repair Photo", type=['jpg', 'png'])
-                if st.form_submit_button("Save & Close Job"):
+
+                remark = st.text_area("Remark / Rework Note", value=job.get('remark', ''))
+
+                # กำหนดค่าเริ่มต้นของสถานะตามข้อมูลเดิม
+                res_options = ["Completed", "Scrapped"]
+                res_idx = 0 if job.get('status') == "Completed" else 1 if job.get('status') == "Scrapped" else 0
+                status = st.radio("Result", res_options, index=res_idx, horizontal=True)
+
+                t_files = st.file_uploader("Upload Repair Photo", type=['jpg', 'png'], accept_multiple_files=True)
+
+                if st.form_submit_button("💾 Save & Update Job"):
                     if "--กรุณาเลือก--" in [defect, action, classify]:
-                        st.error("❌ กรุณาเลือกตัวเลือกให้ครบถ้วน")
+                        st.error("❌ กรุณาเลือกข้อมูล Dropdown ให้ครบถ้วน")
                     else:
-                        img_tech = save_image_b64(t_file)
-                        row_idx = ss.worksheet("sheet1").find(target_sn).row
-                        ws = ss.worksheet("sheet1")
-                        # อัปเดตทีละช่วงเพื่อความแม่นยำ
-                        ws.update(range_name=f'G{row_idx}', values=[[status]])
-                        ws.update(range_name=f'I{row_idx}:M{row_idx}',
-                                  values=[[real_case, defect, action, classify, ""]])
-                        ws.update(range_name=f'N{row_idx}', values=[[datetime.now().strftime("%Y-%m-%d %H:%M")]])
-                        ws.update(range_name=f'P{row_idx}', values=[[img_tech]])
-                        st.success("บันทึกสำเร็จ!");
-                        st.rerun()
+                        with st.spinner("กำลังอัปเดตข้อมูลลง Google Sheet..."):
+                            # บีบอัดภาพเพื่อป้องกันปัญหาข้อมูลเกิน 50k ตัวอักษร
+                            img_tech_combined = save_multiple_images_b64(t_files)
+
+                            ws = ss.worksheet("sheet1")
+
+                            # อัปเดตเฉพาะแถวที่เลือก (Selected Row)
+                            ws.update(range_name=f'G{selected_row}', values=[[status]])
+                            ws.update(range_name=f'I{selected_row}:M{selected_row}',
+                                      values=[[real_case, defect, action, classify, remark]])
+                            ws.update(range_name=f'N{selected_row}',
+                                      values=[[datetime.now().strftime("%Y-%m-%d %H:%M")]])
+
+                            # บันทึกรูปภาพในคอลัมน์ P
+                            if img_tech_combined:
+                                ws.update(range_name=f'P{selected_row}', values=[[img_tech_combined]])
+
+                            st.success(f"✅ บันทึกข้อมูลสำเร็จ! แถวที่ {selected_row} ได้รับการอัปเดต")
+                            st.balloons()
+                            st.rerun()
         else:
-            st.warning("ไม่พบงานค้างซ่อม")
+            st.warning(f"❌ ไม่พบประวัติการแจ้งซ่อมสำหรับ SN: {target_sn}")
 
 # ---------------- [SECTION: USER] ----------------
 elif role == "user":
     st.title("📱 PCBA Repair Request")
-    with st.form("user_request"):
-        u_sn = st.text_input("Serial Number").upper()
-        u_mod = st.selectbox("Model", get_dropdown_options("model_mat"))
-        u_st = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
-        u_fail = st.text_area("Symptom/Failure")
-        u_file = st.file_uploader("Take/Upload Photo")
-        if st.form_submit_button("Submit Request"):
-            if u_mod == "--กรุณาเลือก--" or u_st == "--กรุณาเลือก--" or not u_sn:
-                st.error("❌ กรุณากรอกข้อมูลให้ครบ")
+    with st.form("request_form"):
+        sn = st.text_input("Serial Number (SN)").upper()
+        model = st.selectbox("Model", get_dropdown_options("model_mat"))
+        station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+        failure = st.text_area("Symptom / Failure Description")
+        u_file = st.file_uploader("Attach Photo")
+        if st.form_submit_button("🚀 Submit Request"):
+            if model == "--กรุณาเลือก--" or not sn:
+                st.error("กรุณาระบุ SN และ Model")
             else:
-                img_u = save_image_b64(u_file)
-                now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                img_b64 = save_image_b64(u_file)
                 ss.worksheet("sheet1").append_row(
-                    ["", u_sn, u_mod, "", u_st, u_fail, "Pending", now, "", "", "", "", "", "", img_u, ""])
+                    ["", sn, model, "", station, failure, "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), "", "",
+                     "", "", "", "", img_b64, ""])
                 st.success("ส่งข้อมูลสำเร็จ!");
                 st.balloons()
