@@ -95,6 +95,48 @@ def calculate_tat(row):
     except:
         return None
 
+def send_line_message(sn, model, failure):
+            """ฟังก์ชันส่งข้อความแจ้งเตือนผ่าน LINE Messaging API"""
+            try:
+                # 1. ดึงค่าจาก Secrets (ต้องสะกดให้ตรงกับในหน้า Settings)
+                line_token = st.secrets["line_channel_access_token"]
+                line_to = st.secrets["line_group_id"]
+
+                url = "https://api.line.me/v2/bot/message/push"
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {line_token}"
+                }
+
+                # 2. จัดรูปแบบข้อความ
+                message_text = (
+                    f"📢 **แจ้งซ่อมใหม่ (New Request)**\n"
+                    f"---------------------------\n"
+                    f"🔢 SN: {sn}\n"
+                    f"📦 Model: {model}\n"
+                    f"⚠️ อาการเสีย: {failure}\n"
+                    f"---------------------------\n"
+                    f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                )
+
+                payload = {
+                    "to": line_to,
+                    "messages": [
+                        {
+                            "type": "text",
+                            "text": message_text
+                        }
+                    ]
+                }
+
+                # 3. ส่งคำขอไปยัง LINE API
+                response = requests.post(url, headers=headers, data=json.dumps(payload))
+                return response.status_code == 200
+            except Exception as e:
+                # แสดง Error ที่ชัดเจนหาก Key ใน Secrets หาย
+                st.error(f"⚠️ ไม่สามารถส่งแจ้งเตือน LINE ได้: {e}")
+                return False
+
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
@@ -399,19 +441,33 @@ elif role == "technician":
 # ---------------- [SECTION: USER] ----------------
 elif role == "user":
     st.title("📱 PCBA Repair Request")
-    with st.form("request_form"):
-        sn = st.text_input("Serial Number (SN)").upper()
-        model = st.selectbox("Model", get_dropdown_options("model_mat"))
-        station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
-        failure = st.text_area("Symptom / Failure Description")
-        u_file = st.file_uploader("Attach Photo")
-        if st.form_submit_button("🚀 Submit Request"):
-            if model == "--กรุณาเลือก--" or not sn:
-                st.error("กรุณาระบุ SN และ Model")
+    with st.form("user_request"):
+        u_sn = st.text_input("Serial Number").upper()
+        u_mod = st.selectbox("Model", get_dropdown_options("model_mat"))
+        u_st = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+        u_fail = st.text_area("Symptom/Failure")
+        u_file = st.file_uploader("Take Photo")
+
+        if st.form_submit_button("Submit"):
+            if u_mod == "--กรุณาเลือก--" or not u_sn:
+                st.error("❌ กรุณากรอกข้อมูลให้ครบ")
             else:
-                img_b64 = save_image_b64(u_file)
-                ss.worksheet("sheet1").append_row(
-                    ["", sn, model, "", station, failure, "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), "", "",
-                     "", "", "", "", img_b64, ""])
-                st.success("ส่งข้อมูลสำเร็จ!");
-                st.balloons()
+                with st.spinner("กำลังส่งข้อมูลและแจ้งเตือนทีมงาน..."):
+                    img_u = save_image_b64(u_file)
+
+                    # 1. บันทึกลง Google Sheet (บรรทัดเดิมของคุณ)
+                    ss.worksheet("sheet1").append_row([
+                        "", u_sn, u_mod, "", u_st, u_fail, "Pending",
+                        datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "", "", "", "", "", "", img_u, ""
+                    ])
+
+                    # 2. ส่งแจ้งเตือน LINE
+                    line_status = send_line_message(u_sn, u_mod, u_fail)
+
+                    if line_status:
+                        st.success("ส่งข้อมูลและแจ้งเตือน LINE สำเร็จ!")
+                    else:
+                        st.warning("บันทึกข้อมูลแล้ว แต่แจ้งเตือน LINE ขัดข้อง")
+
+                    st.balloons()
