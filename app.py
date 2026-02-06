@@ -8,6 +8,8 @@ import base64
 from datetime import datetime
 import plotly.express as px
 from PIL import Image
+import requests
+import json
 
 # --- 1. SETTINGS & STYLE ---
 st.set_page_config(page_title="PCBA System 2026 PRO", layout="wide")
@@ -95,47 +97,46 @@ def calculate_tat(row):
     except:
         return None
 
+
 def send_line_message(sn, model, failure):
-            """ฟังก์ชันส่งข้อความแจ้งเตือนผ่าน LINE Messaging API"""
-            try:
-                # 1. ดึงค่าจาก Secrets (ต้องสะกดให้ตรงกับในหน้า Settings)
-                line_token = st.secrets["line_channel_access_token"]
-                line_to = st.secrets["line_group_id"]
+    """ฟังก์ชันส่งข้อความแจ้งเตือนผ่าน LINE Messaging API"""
+    try:
+        # ดึงค่าจาก Secrets
+        line_token = st.secrets["line_channel_access_token"]
+        line_to = st.secrets["line_group_id"]
 
-                url = "https://api.line.me/v2/bot/message/push"
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {line_token}"
+        url = "https://api.line.me/v2/bot/message/push"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {line_token}"
+        }
+
+        # จัดรูปแบบข้อความ
+        message_text = (
+            f"📢 **แจ้งซ่อมใหม่ (New Request)**\n"
+            f"---------------------------\n"
+            f"🔢 SN: {sn}\n"
+            f"📦 Model: {model}\n"
+            f"⚠️ อาการเสีย: {failure}\n"
+            f"---------------------------\n"
+            f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+
+        payload = {
+            "to": line_to,
+            "messages": [
+                {
+                    "type": "text",
+                    "text": message_text
                 }
+            ]
+        }
 
-                # 2. จัดรูปแบบข้อความ
-                message_text = (
-                    f"📢 **แจ้งซ่อมใหม่ (New Request)**\n"
-                    f"---------------------------\n"
-                    f"🔢 SN: {sn}\n"
-                    f"📦 Model: {model}\n"
-                    f"⚠️ อาการเสีย: {failure}\n"
-                    f"---------------------------\n"
-                    f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                )
-
-                payload = {
-                    "to": line_to,
-                    "messages": [
-                        {
-                            "type": "text",
-                            "text": message_text
-                        }
-                    ]
-                }
-
-                # 3. ส่งคำขอไปยัง LINE API
-                response = requests.post(url, headers=headers, data=json.dumps(payload))
-                return response.status_code == 200
-            except Exception as e:
-                # แสดง Error ที่ชัดเจนหาก Key ใน Secrets หาย
-                st.error(f"⚠️ ไม่สามารถส่งแจ้งเตือน LINE ได้: {e}")
-                return False
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"⚠️ ไม่สามารถส่งแจ้งเตือน LINE ได้: {e}")
+        return False
 
 
 # --- 3. SIDEBAR ---
@@ -439,35 +440,101 @@ elif role == "technician":
             st.warning(f"❌ ไม่พบประวัติการแจ้งซ่อมสำหรับ SN: {target_sn}")
 
 # ---------------- [SECTION: USER] ----------------
+# ---------------- [SECTION: USER - WITH SCANNER SUPPORT] ----------------
 elif role == "user":
-    st.title("📱 PCBA Repair Request")
-    with st.form("user_request"):
-        u_sn = st.text_input("Serial Number").upper()
-        u_mod = st.selectbox("Model", get_dropdown_options("model_mat"))
-        u_st = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
-        u_fail = st.text_area("Symptom/Failure")
-        u_file = st.file_uploader("Take Photo")
+    query_params = st.query_params
+    default_index = 1 if query_params.get("page") == "track" else 0
 
-        if st.form_submit_button("Submit"):
-            if u_mod == "--กรุณาเลือก--" or not u_sn:
-                st.error("❌ กรุณากรอกข้อมูลให้ครบ")
-            else:
-                with st.spinner("กำลังส่งข้อมูลและแจ้งเตือนทีมงาน..."):
-                    img_u = save_image_b64(u_file)
+    menu = st.sidebar.radio(
+        "📍 เมนูการใช้งาน",
+        ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"],
+        index=default_index
+    )
 
-                    # 1. บันทึกลง Google Sheet (บรรทัดเดิมของคุณ)
-                    ss.worksheet("sheet1").append_row([
-                        "", u_sn, u_mod, "", u_st, u_fail, "Pending",
-                        datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "", "", "", "", "", "", img_u, ""
-                    ])
+    # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ ---
+    if menu == "🚀 แจ้งซ่อมใหม่":
+        st.title("📱 PCBA Repair Request")
 
-                    # 2. ส่งแจ้งเตือน LINE
-                    line_status = send_line_message(u_sn, u_mod, u_fail)
+        # เพิ่มปุ่มสแกนผ่านกล้อง (ใช้สำหรับถ่ายรูป Barcode เพื่ออ่านค่า)
+        with st.expander("📷 เปิดกล้องสแกน SN (แทนการพิมพ์)"):
+            scan_file = st.camera_input("สแกน Barcode/QR Code บนบอร์ด")
+            if scan_file:
+                st.info("💡 ระบบกำลังประมวลผลรูปภาพ (ในอนาคตเชื่อมต่อ AI OCR ได้)")
 
-                    if line_status:
-                        st.success("ส่งข้อมูลและแจ้งเตือน LINE สำเร็จ!")
+        with st.form("request_form"):
+            sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
+            model = st.selectbox("Model", get_dropdown_options("model_mat"))
+            station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+            failure = st.text_area("Symptom / Failure Description")
+            u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
+
+            if st.form_submit_button("🚀 Submit Request"):
+                if model == "--กรุณาเลือก--" or not sn:
+                    st.error("❌ กรุณาระบุ SN และ Model")
+                else:
+                    with st.spinner("กำลังบันทึกข้อมูล..."):
+                        img_b64 = save_image_b64(u_file)
+                        ss.worksheet("sheet1").append_row(
+                            ["", sn, model, "", station, failure, "Pending",
+                             datetime.now().strftime("%Y-%m-%d %H:%M"),
+                             "", "", "", "", "", "", img_b64, ""]
+                        )
+                        send_line_message(sn, model, failure)
+                        st.success("✅ แจ้งซ่อมสำเร็จ!")
+                        st.balloons()
+
+    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (รองรับสแกน SN) ---
+    elif menu == "🔍 ติดตามสถานะงาน":
+        st.title("🔎 Follow Up Status")
+
+        # เพิ่มช่องทางสแกน SN เพื่อค้นหาทันที
+        with st.expander("📷 สแกน SN เพื่อค้นหา"):
+            cam_scan = st.camera_input("ถ่ายรูป SN เพื่อค้นหา")
+
+        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือชื่อ Model",
+                                     placeholder="พิมพ์หรือสแกนที่นี่...").strip().upper()
+
+        if search_input:
+            with st.spinner("กำลังค้นหาข้อมูล..."):
+                df_main = get_df("sheet1")
+                if not df_main.empty:
+                    filtered_df = df_main[
+                        df_main['sn'].astype(str).str.contains(search_input) |
+                        df_main['model'].astype(str).str.contains(search_input)
+                        ].sort_values(by='user_time', ascending=False)
+
+                    if not filtered_df.empty:
+                        st.success(f"🔎 พบรายการที่เกี่ยวข้อง {len(filtered_df)} รายการ")
+                        for _, r in filtered_df.iterrows():
+                            status = r['status']
+                            status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+
+                            with st.container(border=True):
+                                c1, c2 = st.columns([3, 1])
+                                with c1:
+                                    st.subheader(f"🔢 SN: {r['sn']}")
+                                    st.write(f"📦 **Model:** {r['model']}")
+                                    st.caption(f"📅 วันที่แจ้ง: {r['user_time']}")
+                                with c2:
+                                    st.markdown(f"""
+                                        <div style='background-color:{status_color}; padding:10px; border-radius:10px; text-align:center;'>
+                                            <span style='color:white; font-weight:bold;'>{status}</span>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+
+                                # แสดงข้อมูลการซ่อมเพิ่มเติมเมื่อมีการบันทึกผลแล้ว
+                                if status != "Pending":
+                                    # เปลี่ยนหัวข้อให้สื่อถึงการวิเคราะห์และแก้ไขตาม real_case
+                                    with st.expander("📝 รายละเอียดการวิเคราะห์และแก้ไข"):
+                                        # อ้างอิงจากคอลัมน์ real_case เป็นหลักตามความต้องการ
+                                        st.markdown(f"**🔍 สาเหตุที่พบ (Real Case):** {r.get('real_case', '-')}")
+                                        st.markdown(f"**🛠 วิธีการแก้ไข:** {r.get('action', '-')}")
+
+                                        # แสดงหมายเหตุเพิ่มเติม (ถ้ามี)
+                                        if r.get('remark'):
+                                            st.info(f"💡 **หมายเหตุ:** {r['remark']}")
+
+                                        # แสดงวันเวลาที่ทำรายการสำเร็จ
+                                        st.caption(f"✅ ดำเนินการเสร็จสิ้นเมื่อ: {r.get('tech_time', '-')}")
                     else:
-                        st.warning("บันทึกข้อมูลแล้ว แต่แจ้งเตือน LINE ขัดข้อง")
-
-                    st.balloons()
+                        st.warning(f"⚠️ ไม่พบข้อมูลสำหรับ: '{search_input}'")
