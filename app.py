@@ -70,12 +70,7 @@ def save_multiple_images_b64(files):
     if not files: return ""
     return ",".join(filter(None, [save_image_b64(f) for f in files]))
 
-# --- LINE NOTIFICATION FUNCTIONS ---
-def send_line_message(wo,sn, model, failure, status_type="New Request", operator="Unknown"):
-    """
-    ฟังก์ชันส่งแจ้งเตือน LINE แบบยืดหยุ่น
-    status_type: "New Request" หรือ "Repair Completed"
-    """
+def send_line_message(wo, sn, model, failure, status_type="New Request", operator="Unknown"):
     try:
         line_token = st.secrets["line_channel_access_token"]
         line_to = st.secrets["line_group_id"]
@@ -86,16 +81,16 @@ def send_line_message(wo,sn, model, failure, status_type="New Request", operator
             "Authorization": f"Bearer {line_token}"
         }
 
-        # กำหนดหัวข้อและอิโมจิ
         header_text = "📢 แจ้งซ่อมใหม่" if status_type == "New Request" else "✅ ซ่อมเสร็จสิ้น"
 
         message_text = (
             f"{header_text}\n"
             f"---------------------------\n"
-            f"🔢 SN: {sn}\n"
+            f"🔢 WO: {wo}\n"  # เพิ่มบรรทัดนี้
+            f"🆔 SN: {sn}\n"
             f"📦 Model: {model}\n"
-            f"⚠️ รายละเอียด: {failure}\n"
-            f"👤 โดย: {operator}\n"
+            f"⚠️ อาการ: {failure}\n"
+            f"👤 ผู้แจ้ง: {operator}\n"
             f"---------------------------\n"
             f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
@@ -108,7 +103,6 @@ def send_line_message(wo,sn, model, failure, status_type="New Request", operator
         response = requests.post(url, headers=headers, data=json.dumps(payload))
         return response.status_code == 200
     except Exception as e:
-        # ใช้ st.error เฉพาะตอน Debug หรือจะปล่อยเงียบไว้ไม่ให้ User ตกใจก็ได้
         print(f"LINE Error: {e}")
         return False
 
@@ -337,12 +331,11 @@ elif role == "user":
         index=default_index
     )
 
-  # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
+ # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
 if menu == "🚀 แจ้งซ่อมใหม่":
     st.title("📱 PCBA Repair Request")
     
     with st.form("request_form"):
-        # เพิ่มช่องบันทึก WO
         wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
         sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
         model = st.selectbox("Model", get_dropdown_options("model_mat"))
@@ -362,35 +355,33 @@ if menu == "🚀 แจ้งซ่อมใหม่":
 
                     img_b64 = save_image_b64(u_file)
 
-                    # บันทึกข้อมูลตามลำดับคอลัมน์ใน image_ef969f.png
-                    # A:user_id, B:wo, C:sn, D:model, E:product, F:station, G:failure, H:status, I:user_time...
+                    # เตรียมข้อมูลบันทึกลง Sheet (เรียงตาม A-Q)
                     new_data = [
-                        st.session_state.user,  # บันทึก user_id
-                        wo,                     # บันทึก WO
-                        sn, 
-                        model, 
-                        p_name,                 # Product Name อัตโนมัติ
-                        station, 
-                        failure, 
-                        "Pending",              # Status เริ่มต้น
-                        datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "", "", "", "", "",     # เว้นว่างสำหรับข้อมูลการซ่อม (I-M)
-                        "",                     # เว้นว่างสำหรับ tech_id (N)
-                        "",                     # เว้นว่างสำหรับ tech_time (O)
-                        img_b64,                # img_user (P)
-                        ""                      # img_tech (Q)
+                        st.session_state.user,  # A: user_id
+                        wo,                     # B: wo
+                        sn,                     # C: sn
+                        model,                  # D: model
+                        p_name,                 # E: product
+                        station,                # F: station
+                        failure,                # G: failure
+                        "Pending",              # H: status
+                        datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
+                        "", "", "", "", "",     # J-N: repair info
+                        "",                     # O: tech_id
+                        "",                     # P: tech_time
+                        img_b64,                # Q: img_user
+                        ""                      # R: img_tech
                     ]
                     
+                    # บันทึกลง Google Sheets
                     ss.worksheet("sheet1").append_row(new_data)
-                    send_line_message(sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                    st.success(f"✅ บันทึก WO: {wo} สำเร็จ!")
-                        
-                        # 4. ส่งแจ้งเตือน LINE
-                        send_line_message(wo,sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        
-                        st.success(f"✅ แจ้งซ่อมสำเร็จ! (Product: {p_name})")
-                        st.balloons()
-
+                    
+                    # ส่งแจ้งเตือน LINE (ส่งค่า wo เข้าไปด้วย)
+                    send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
+                    
+                    st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ! (Product: {p_name})")
+                    st.balloons()
+                    # ไม่ต้องใส่ st.rerun() ตรงนี้เพื่อให้ User เห็นข้อความสำเร็จก่อน
     # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (รองรับสแกน SN) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
