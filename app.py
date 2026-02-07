@@ -178,7 +178,6 @@ if not st.session_state.logged_in:
                     if not result.empty:
                         for _, r in result.iterrows():
                             status = r.get('status', 'Pending')
-                            # กำหนดสีตามสถานะ
                             color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
                             
                             with st.container(border=True):
@@ -201,23 +200,31 @@ if not st.session_state.logged_in:
             st.info("💡 กรุณากรอกเลข Serial Number หรือ Work Order เพื่อดูความคืบหน้า")
 
     with tab2:
-    with st.form("login"):
-        u = st.text_input("Username").strip()
-        p = st.text_input("Password", type="password").strip()
-        if st.form_submit_button("Login"):
-            df_u = get_df("users")
-            match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
-            if not match.empty:
-                # แก้ไขจุดนี้: ดึงค่าจากคอลัมน์ 'station' ในตาราง users มาเก็บไว้
-                st.session_state.update({
-                    "logged_in": True, 
-                    "user": u, 
-                    "role": match.iloc[0]['role'],
-                    "station": match.iloc[0].get('station', 'General') # ถ้าไม่มีให้ใส่ General
-                })
-                st.rerun()
-            else: st.error("Invalid credentials")
-    st.stop()
+        # แก้ไขโครงสร้าง Form ตรงนี้ให้ถูกต้อง
+        st.subheader("พนักงาน/ช่างซ่อม เข้าสู่ระบบ")
+        with st.form("login_form"):
+            u = st.text_input("Username").strip()
+            p = st.text_input("Password", type="password").strip()
+            submit = st.form_submit_button("Login")
+            
+            if submit:
+                df_u = get_df("users")
+                if not df_u.empty:
+                    match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
+                    if not match.empty:
+                        st.session_state.update({
+                            "logged_in": True, 
+                            "user": u, 
+                            "role": match.iloc[0]['role'],
+                            "station": match.iloc[0].get('station', 'General')
+                        })
+                        st.success("✅ Login สำเร็จ!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Username หรือ Password ไม่ถูกต้อง")
+                else:
+                    st.error("❌ ไม่สามารถดึงข้อมูลพนักงานได้")
+    st.stop() # หยุดการทำงานเพื่อให้แสดงแค่ 2 Tab นี้ก่อน Login
 
 
 # --- 4. MAIN LOGIC ---
