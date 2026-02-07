@@ -113,21 +113,35 @@ def send_line_message(sn, model, failure, status_type="New Request", operator="U
         return False
 
 
-# --- 3. LOGIN SYSTEM ---
-if not st.session_state.logged_in:
-    st.title("🔐 Login PCBA PRO 2026")
-    with st.form("login"):
-        u = st.text_input("Username").strip()
-        p = st.text_input("Password", type="password").strip()
-        if st.form_submit_button("เข้าสู่ระบบ"):
-            df_u = get_df("users")
-            match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
-            if not match.empty:
-                st.session_state.update({"logged_in": True, "user": u, "role": match.iloc[0]['role'],
-                                         "station": match.iloc[0].get('station', '')})
-                st.rerun()
-            else: st.error("Username หรือ Password ไม่ถูกต้อง")
-    st.stop()
+# --- 3. SIDEBAR (แสดงชื่อผู้ใช้ และสถานะ พร้อมปุ่ม Logout) ---
+with st.sidebar:
+    if st.session_state.logged_in:
+        # กรอบโปรไฟล์ผู้ใช้งาน
+        st.markdown(f"""
+            <div class="user-profile">
+                <p style="margin:0; font-size:14px; opacity:0.8;">ยินดีต้อนรับ</p>
+                <h3 style="margin:5px 0; color:white;">👤 {st.session_state.user}</h3>
+                <span style="background:#ffd700; color:#000; padding:2px 10px; border-radius:15px; font-size:12px; font-weight:bold;">
+                    {st.session_state.role.upper()}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # ปุ่ม Logout
+        if st.button("🚪 ออกจากระบบ", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user = ""
+            st.session_state.role = ""
+            st.rerun()
+            
+        st.divider()
+        
+    if status_conn: 
+        st.sidebar.caption("● System Online")
+    else: 
+        st.sidebar.caption("○ System Offline")
+
+
 # --- 4. MAIN LOGIC ---
 role = st.session_state.role.lower()
 
