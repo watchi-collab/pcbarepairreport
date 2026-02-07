@@ -221,42 +221,97 @@ if role == "admin":
     tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
     df_main = get_df("sheet1")
 
-    with tabs[0]:  # DASHBOARD
+    with tabs[0]:  # 📊 DASHBOARD (NEW LOOK 2026)
         st.subheader("📊 PCBA Performance Analysis")
+        
         if not df_main.empty:
+            # 1. การจัดการข้อมูลเบื้องต้น
             df_main['user_time'] = pd.to_datetime(df_main['user_time'], errors='coerce')
+            
+            # --- [SECTION 1] ตัวกรองข้อมูล (Filters) ---
             with st.container(border=True):
                 c1, c2, c3 = st.columns([2, 2, 1])
-                start_d = c1.date_input("วันที่เริ่มต้น", datetime.now().replace(day=1))
-                end_d = c2.date_input("วันที่สิ้นสุด", datetime.now())
+                start_d = c1.date_input("📅 วันที่เริ่มต้น", datetime.now().replace(day=1))
+                end_d = c2.date_input("📅 วันที่สิ้นสุด", datetime.now())
+                
                 mask = (df_main['user_time'].dt.date >= start_d) & (df_main['user_time'].dt.date <= end_d)
                 df_filtered = df_main.loc[mask]
-
+                
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     df_filtered.to_excel(writer, index=False, sheet_name='Report')
                 c3.write("");
-                c3.download_button("📥 Export Excel", buffer.getvalue(), f"Report_{start_d}.xlsx")
+                c3.download_button("📥 Export Excel", buffer.getvalue(), f"PCBA_Report_{start_d}.xlsx", use_container_width=True)
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Jobs", len(df_filtered))
-            m2.metric("Completed", len(df_filtered[df_filtered['status'] == 'Completed']))
-            m3.metric("Pending", len(df_filtered[df_filtered['status'] == 'Pending']))
+            # --- [SECTION 2] บัตรตัวเลขหลัก (KPI Cards) ---
+            total = len(df_filtered)
+            comp = len(df_filtered[df_filtered['status'] == 'Completed'])
+            pend = len(df_filtered[df_filtered['status'] == 'Pending'])
+            scrap = len(df_filtered[df_filtered['status'] == 'Scrapped'])
+            success_rate = (comp / total * 100) if total > 0 else 0
+            
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Jobs", f"{total} แผง", help="จำนวนงานทั้งหมดในช่วงเวลาที่เลือก")
+            kpi2.metric("Completed", f"{comp} แผง", delta=f"{success_rate:.1f}% Rate", delta_color="normal")
+            kpi3.metric("Pending", f"{pend} แผง", delta=f"{pend} งานค้าง", delta_color="inverse")
+            kpi4.metric("Scrapped", f"{scrap} แผง", delta=f"{scrap} เสียทิ้ง", delta_color="off")
 
             st.divider()
-            col_chart1, col_chart2 = st.columns(2)
+
+            # --- [SECTION 3] กราฟวิเคราะห์ (Analysis Charts) ---
+            col_chart1, col_chart2 = st.columns([1, 1])
+            
             with col_chart1:
-                st.markdown("#### 🍕 Classification Summary")
+                st.markdown("#### 🍕 Defect Classification")
                 df_cl = df_filtered[df_filtered['classification'] != ""]
-                if not df_cl.empty: st.plotly_chart(px.pie(df_cl, names='classification', hole=0.4),
-                                                    use_container_width=True)
+                if not df_cl.empty:
+                    fig_pie = px.pie(df_cl, names='classification', hole=0.5, 
+                                   color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig_pie.update_layout(showlegend=True, margin=dict(t=10, b=10, l=10, r=10))
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                else:
+                    st.info("ยังไม่มีข้อมูล Classification")
+
             with col_chart2:
-                st.markdown("#### 📈 Top Defect Types")
+                st.markdown("#### 📈 Repair Trend (Daily)")
+                trend_df = df_filtered.copy()
+                trend_df['date'] = trend_df['user_time'].dt.date
+                trend_data = trend_df.groupby(['date', 'status']).size().reset_index(name='count')
+                
+                if not trend_data.empty:
+                    fig_line = px.line(trend_data, x='date', y='count', color='status',
+                                     markers=True, line_shape="spline",
+                                     color_discrete_map={'Completed': '#28A745', 'Pending': '#FFA500', 'Scrapped': '#DC3545'})
+                    fig_line.update_layout(margin=dict(t=20, b=0, l=0, r=0), hovermode="x unified")
+                    st.plotly_chart(fig_line, use_container_width=True)
+
+            # --- [SECTION 4] รายการลำดับความสำคัญ (Priorities) ---
+            st.divider()
+            c_bot1, c_bot2 = st.columns([1, 1])
+            
+            with c_bot1:
+                st.markdown("#### 📊 Top 5 Defect Types")
                 df_dt = df_filtered[df_filtered['defect_type'] != ""]
                 if not df_dt.empty:
-                    top_df = df_dt['defect_type'].value_counts().reset_index()
-                    st.plotly_chart(px.bar(top_df, x='count', y='defect_type', orientation='h', color='count'),
-                                    use_container_width=True)
+                    top_df = df_dt['defect_type'].value_counts().reset_index().head(5)
+                    fig_bar = px.bar(top_df, x='count', y='defect_type', orientation='h', 
+                                   text='count', color='count', color_continuous_scale='GnBu')
+                    fig_bar.update_layout(showlegend=False)
+                    st.plotly_chart(fig_bar, use_container_width=True)
+
+            with c_bot2:
+                st.markdown("#### 🚨 Oldest Pending (Top 5 งานค้างนาน)")
+                # ดึงงานที่ Status=Pending และเก่าที่สุดมาแสดง
+                df_old = df_filtered[df_filtered['status'] == 'Pending'].sort_values(by='user_time').head(5)
+                if not df_old.empty:
+                    # ปรับแต่งตารางให้ดูสวยงาม
+                    st.dataframe(df_old[['sn', 'model', 'user_time', 'user_id']], 
+                                 hide_index=True, use_container_width=True)
+                else:
+                    st.success("✅ เยี่ยมมาก! ไม่มีงานค้างในระบบ")
+
+        else:
+            st.warning("⚠️ ไม่พบข้อมูลในช่วงวันที่เลือก กรุณาลองปรับวันที่ใหม่")
 
     with tabs[1]:  # Master Data
         sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
