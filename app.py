@@ -331,64 +331,59 @@ elif role == "user":
         index=default_index
     )
 
- # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
-if menu == "🚀 แจ้งซ่อมใหม่":
-    st.title("📱 PCBA Repair Request")
-    
-    with st.form("request_form"):
-        wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
-        sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
-        model = st.selectbox("Model", get_dropdown_options("model_mat"))
-        station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
-        failure = st.text_area("Symptom / Failure Description")
-        u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
+    # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
+    if menu == "🚀 แจ้งซ่อมใหม่":
+        st.title("📱 PCBA Repair Request")
+        
+        with st.form("request_form"):
+            wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
+            sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
+            model = st.selectbox("Model", get_dropdown_options("model_mat"))
+            station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+            failure = st.text_area("Symptom / Failure Description")
+            u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
 
-        if st.form_submit_button("🚀 Submit Request"):
-            if model == "--กรุณาเลือก--" or not sn or not wo:
-                st.error("❌ กรุณาระบุ WO, SN และ Model")
-            else:
-                with st.spinner("กำลังบันทึกข้อมูล..."):
-                    # ดึง Product Name จาก model_mat
-                    df_models = get_df("model_mat")
-                    match = df_models[df_models['model'].astype(str) == str(model)]
-                    p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+            if st.form_submit_button("🚀 Submit Request"):
+                if model == "--กรุณาเลือก--" or not sn or not wo:
+                    st.error("❌ กรุณาระบุ WO, SN และ Model")
+                else:
+                    with st.spinner("กำลังบันทึกข้อมูล..."):
+                        # ดึง Product Name จาก model_mat
+                        df_models = get_df("model_mat")
+                        match = df_models[df_models['model'].astype(str) == str(model)]
+                        p_name = match.iloc[0]['product_name'] if not match.empty else "-"
 
-                    img_b64 = save_image_b64(u_file)
+                        img_b64 = save_image_b64(u_file)
 
-                    # เตรียมข้อมูลบันทึกลง Sheet (เรียงตาม A-Q)
-                    new_data = [
-                        st.session_state.user,  # A: user_id
-                        wo,                     # B: wo
-                        sn,                     # C: sn
-                        model,                  # D: model
-                        p_name,                 # E: product
-                        station,                # F: station
-                        failure,                # G: failure
-                        "Pending",              # H: status
-                        datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
-                        "", "", "", "", "",     # J-N: repair info
-                        "",                     # O: tech_id
-                        "",                     # P: tech_time
-                        img_b64,                # Q: img_user
-                        ""                      # R: img_tech
-                    ]
-                    
-                    # บันทึกลง Google Sheets
-                    ss.worksheet("sheet1").append_row(new_data)
-                    
-                    # ส่งแจ้งเตือน LINE (ส่งค่า wo เข้าไปด้วย)
-                    send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                    
-                    st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ! (Product: {p_name})")
-                    st.balloons()
-                    # ไม่ต้องใส่ st.rerun() ตรงนี้เพื่อให้ User เห็นข้อความสำเร็จก่อน
-    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (รองรับสแกน SN) ---
+                        # บันทึกข้อมูลตามลำดับคอลัมน์ A-R
+                        new_data = [
+                            st.session_state.user,  # A: user_id
+                            wo,                     # B: wo
+                            sn,                     # C: sn
+                            model,                  # D: model
+                            p_name,                 # E: product
+                            station,                # F: station
+                            failure,                # G: failure
+                            "Pending",              # H: status
+                            datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
+                            "", "", "", "", "",     # J-N: repair info
+                            "",                     # O: tech_id
+                            "",                     # P: tech_time
+                            img_b64,                # Q: img_user
+                            ""                      # R: img_tech
+                        ]
+                        
+                        ss.worksheet("sheet1").append_row(new_data)
+                        
+                        # แจ้งเตือน LINE (ส่ง WO เข้าไปด้วย)
+                        send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
+                        
+                        st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ! (Product: {p_name})")
+                        st.balloons()
+
+    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (ย่อหน้าให้ตรงกับ if menu ด้านบน) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-
-        # เพิ่มช่องทางสแกน SN เพื่อค้นหาทันที
-        with st.expander("📷 สแกน SN เพื่อค้นหา"):
-            cam_scan = st.camera_input("ถ่ายรูป SN เพื่อค้นหา")
 
         search_input = st.text_input("🔍 ค้นหาด้วย SN หรือชื่อ Model",
                                      placeholder="พิมพ์หรือสแกนที่นี่...").strip().upper()
@@ -397,10 +392,11 @@ if menu == "🚀 แจ้งซ่อมใหม่":
             with st.spinner("กำลังค้นหาข้อมูล..."):
                 df_main = get_df("sheet1")
                 if not df_main.empty:
+                    # แก้ไขชื่อคอลัมน์ 'id' เป็น 'user_id' ให้ตรงกับตอนบันทึก
                     filtered_df = df_main[
                         df_main['sn'].astype(str).str.contains(search_input) |
                         df_main['model'].astype(str).str.contains(search_input)
-                        ].sort_values(by='user_time', ascending=False)
+                    ].sort_values(by='user_time', ascending=False)
 
                     if not filtered_df.empty:
                         st.success(f"🔎 พบรายการที่เกี่ยวข้อง {len(filtered_df)} รายการ")
@@ -412,7 +408,7 @@ if menu == "🚀 แจ้งซ่อมใหม่":
                                 c1, c2 = st.columns([3, 1])
                                 with c1:
                                     st.subheader(f"🔢 SN: {r['sn']}")
-                                    st.write(f"📦 **Model:** {r['model']}")
+                                    st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
                                     st.caption(f"📅 วันที่แจ้ง: {r['user_time']}")
                                 with c2:
                                     st.markdown(f"""
@@ -421,37 +417,26 @@ if menu == "🚀 แจ้งซ่อมใหม่":
                                         </div>
                                     """, unsafe_allow_html=True)
 
-                                # แสดงข้อมูลการซ่อมเพิ่มเติมเมื่อมีการบันทึกผลแล้ว
                                 if status != "Pending":
-                                    # เปลี่ยนหัวข้อให้สื่อถึงการวิเคราะห์และแก้ไขตาม real_case
                                     with st.expander("📝 รายละเอียดการวิเคราะห์และแก้ไข"):
-                                        # อ้างอิงจากคอลัมน์ real_case เป็นหลักตามความต้องการ
-                                        st.markdown(f"**🔍 สาเหตุที่พบ (Real Case):** {r.get('real_case', '-')}")
-                                        st.markdown(f"**🛠 วิธีการแก้ไข:** {r.get('action', '-')}")
-
-                                        # แสดงหมายเหตุเพิ่มเติม (ถ้ามี)
-                                        if r.get('remark'):
-                                            st.info(f"💡 **หมายเหตุ:** {r['remark']}")
-
-                                        # แสดงวันเวลาที่ทำรายการสำเร็จ
-                                        st.caption(f"✅ ดำเนินการเสร็จสิ้นเมื่อ: {r.get('tech_time', '-')}")
+                                        st.markdown(f"**🔍 สาเหตุที่พบ:** {r.get('real_case', '-')}")
+                                        st.markdown(f"**🛠 วิธีการแก้ไข:** {r.get('action_taken', '-')}")
+                                        st.caption(f"✅ ดำเนินการโดย: {r.get('tech_id', '-')} เมื่อ {r.get('tech_time', '-')}")
                     else:
                         st.warning(f"⚠️ ไม่พบข้อมูลสำหรับ: '{search_input}'")
 
-    # ประวัติ 5 รายการล่าสุด
-    st.divider()
-    st.subheader("🕒 ประวัติของคุณ (5 รายการล่าสุด)")
-    df_all = get_df("sheet1")
-    if not df_all.empty:
-        # ใช้คอลัมน์ 'id' ในการกรองประวัติผู้ใช้
-        user_jobs = df_all[df_all['id'].astype(str) == st.session_state.user].tail(5).iloc[::-1]
-        for _, r in user_jobs.iterrows():
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([2, 2, 1])
-                c1.write(f"**SN:** {r['sn']}\n\n**Model:** {r['model']}")
-                c2.write(f"**แจ้งเมื่อ:** {r['user_time']}\n\n**Product:** {r.get('product', '-')}")
-                stt = r['status']
-                color = "#FFD700" if stt == "Pending" else "#28A745" if stt == "Completed" else "#DC3545"
-                c3.markdown(
-                    f"<div style='background:{color};color:white;padding:10px;border-radius:8px;text-align:center;'>{stt}</div>",
-                    unsafe_allow_html=True)
+        # ประวัติ 5 รายการล่าสุด (ย่อหน้าให้ตรงกับ if search_input)
+        st.divider()
+        st.subheader("🕒 ประวัติของคุณ (5 รายการล่าสุด)")
+        df_all = get_df("sheet1")
+        if not df_all.empty:
+            # เปลี่ยน 'id' เป็น 'user_id' ให้ตรงกับหัวตาราง
+            user_jobs = df_all[df_all['user_id'].astype(str) == st.session_state.user].tail(5).iloc[::-1]
+            for _, r in user_jobs.iterrows():
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([2, 2, 1])
+                    c1.write(f"**SN:** {r['sn']}\n\n**WO:** {r.get('wo', '-')}")
+                    c2.write(f"**วันที่:** {r['user_time']}\n\n**Model:** {r['model']}")
+                    stt = r['status']
+                    color = "#FFD700" if stt == "Pending" else "#28A745" if stt == "Completed" else "#DC3545"
+                    c3.markdown(f"<div style='background:{color};color:white;padding:10px;border-radius:8px;text-align:center;'>{stt}</div>", unsafe_allow_html=True)
