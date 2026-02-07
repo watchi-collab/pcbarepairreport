@@ -262,14 +262,13 @@ elif role == "technician":
     if target_sn:
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # ค้นหา SN (สมมติ SN อยู่คอลัมน์ CIndex 2)
             jobs = df_main[df_main['sn'].astype(str) == target_sn].copy()
             if not jobs.empty:
-                options = [(i + 2, f"แถว {i + 2} | {r['status']} | {r['model']}") for i, r in jobs.iterrows()]
+                options = [(i, f"รายการที่ {i+1} | {r['status']} | {r['model']}") for i, r in jobs.iterrows()]
                 sel = st.radio("เลือกรายการที่ต้องการอัปเดต:", options, format_func=lambda x: x[1])
-                sel_row, job = sel[0], jobs.loc[sel[0] - 2]
+                idx_original, job = sel[0], jobs.loc[sel[0]]
+                sel_row = idx_original + 2  # แปลง Index เป็นลำดับแถวใน Google Sheets (Header + 1-based)
 
-                # ดึง Product Name จาก model_mat มาเติมถ้าใน sheet1 ว่าง
                 p_name = str(job.get('product', '')).strip()
                 if p_name in ["", "-", "None", "nan"]:
                     df_models = get_df("model_mat")
@@ -279,7 +278,7 @@ elif role == "technician":
                 with st.container(border=True):
                     c_u1, c_u2 = st.columns([2, 1])
                     with c_u1:
-                        st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']}")
+                        st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']} | **🔢 WO:** {job.get('wo', '-')}")
                         st.success(f"**🏷️ Product Name:** {p_name}")
                         st.error(f"⚠️ **Symptom:** {job.get('failure', 'N/A')}")
                     if job.get('img_user'): 
@@ -295,31 +294,30 @@ elif role == "technician":
 
                     if st.form_submit_button("💾 Save Update"):
                         ws = ss.worksheet("sheet1")
-                        
-                        # --- การบันทึกข้อมูลตามโครงสร้างใหม่ ---
-                        # 1. บันทึก Product Name (E) และ Status (H)
                         ws.update(f'E{sel_row}', [[p_name]])
                         ws.update(f'H{sel_row}', [[stt]])
-                        
-                        # 2. บันทึกรายละเอียดการซ่อม (J:real_case ถึง N:remark)
                         ws.update(f'J{sel_row}:N{sel_row}', [[rc, dt, ac, cl, "-"]])
-                        
-                        # 3. บันทึกข้อมูล Tech ID (O) และ Tech Time (P)
                         ws.update(f'O{sel_row}', [[st.session_state.user]])
                         ws.update(f'P{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
                         
-                        # 4. บันทึกรูปภาพของช่าง (R) (ใช้ R เพื่อไม่ให้ทับกับรูป User ใน Q)
                         if imgs: 
                             ws.update(f'R{sel_row}', [[save_multiple_images_b64(imgs)]])
 
-                        # LINE Notification
-                        send_line_message(job['sn'], job['model'], f"ผลการซ่อม: {stt}", 
-                                         status_type="Completed", operator=st.session_state.user)
+                        # --- แก้ไขจุดนี้: ส่งค่า wo เพิ่มเข้าไปเป็นตัวแรก ---
+                        send_line_message(
+                            job.get('wo', '-'), 
+                            job['sn'], 
+                            job['model'], 
+                            f"ผลการซ่อม: {stt} (สาเหตุ: {rc})", 
+                            status_type="Completed", 
+                            operator=st.session_state.user
+                        )
                         
-                        st.success(f"✅ อัปเดตงานซ่อม SN: {job['sn']} โดยช่าง {st.session_state.user} เรียบร้อย!")
+                        st.success(f"✅ อัปเดตงานซ่อม SN: {job['sn']} เรียบร้อย!")
                         st.rerun()
             else:
                 st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
+
 
 elif role == "user":
     query_params = st.query_params
