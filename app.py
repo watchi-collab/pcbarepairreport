@@ -162,20 +162,31 @@ if not st.session_state.logged_in:
         st.title("🔎 PCBA Repair Tracking")
         st.subheader("เช็คสถานะงานซ่อมของคุณ")
         
-        # ช่องค้นหาแบบสาธารณะ
-        pub_search = st.text_input("ระบุเลข SN หรือ WO เพื่อค้นหา", key="pub_search").strip().upper()
+        # ช่องค้นหาแบบสาธารณะ (เพิ่ม Model)
+        c_search1, c_search2 = st.columns(2)
+        with c_search1:
+            pub_search = st.text_input("🔢 ระบุเลข SN หรือ WO", key="pub_search").strip().upper()
+        with c_search2:
+            model_search = st.text_input("📦 ระบุ Model", key="model_search").strip().upper()
         
-        if pub_search:
+        if pub_search or model_search:
             with st.spinner("กำลังค้นหาข้อมูล..."):
                 df_pub = get_df("sheet1")
                 if not df_pub.empty:
-                    # กรองข้อมูลจาก SN หรือ WO
-                    result = df_pub[
-                        df_pub['sn'].astype(str).str.contains(pub_search) | 
-                        df_pub['wo'].astype(str).str.contains(pub_search)
-                    ].sort_values(by='user_time', ascending=False)
+                    # สร้างเงื่อนไขการกรอง
+                    query = pd.Series([True] * len(df_pub))
+                    
+                    if pub_search:
+                        query &= (df_pub['sn'].astype(str).str.contains(pub_search) | 
+                                 df_pub['wo'].astype(str).str.contains(pub_search))
+                    
+                    if model_search:
+                        query &= (df_pub['model'].astype(str).str.contains(model_search))
+
+                    result = df_pub[query].sort_values(by='user_time', ascending=False)
 
                     if not result.empty:
+                        st.write(f"🔍 พบข้อมูลทั้งหมด {len(result)} รายการ")
                         for _, r in result.iterrows():
                             status = r.get('status', 'Pending')
                             color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
@@ -193,11 +204,11 @@ if not st.session_state.logged_in:
                                         st.write(f"🛠 **วิธีแก้ไข:** {r.get('action', '-')}")
                                         st.write(f"🕒 **เสร็จเมื่อ:** {r.get('tech_time', '-')}")
                     else:
-                        st.warning("❌ ไม่พบข้อมูลที่ตรงกับเลขที่ระบุ")
+                        st.warning("❌ ไม่พบข้อมูลที่ตรงกับเงื่อนไขที่ระบุ")
                 else:
                     st.error("ไม่สามารถเชื่อมต่อฐานข้อมูลได้")
         else:
-            st.info("💡 กรุณากรอกเลข Serial Number หรือ Work Order เพื่อดูความคืบหน้า")
+            st.info("💡 กรุณากรอกเลข Serial Number, Work Order หรือ Model เพื่อดูความคืบหน้า")
 
     with tab2:
         # แก้ไขโครงสร้าง Form ตรงนี้ให้ถูกต้อง
