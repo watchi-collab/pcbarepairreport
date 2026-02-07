@@ -71,7 +71,7 @@ def save_multiple_images_b64(files):
     return ",".join(filter(None, [save_image_b64(f) for f in files]))
 
 # --- LINE NOTIFICATION FUNCTIONS ---
-def send_line_message(sn, model, failure, status_type="New Request", operator="Unknown"):
+def send_line_message(wo,sn, model, failure, status_type="New Request", operator="Unknown"):
     """
     ฟังก์ชันส่งแจ้งเตือน LINE แบบยืดหยุ่น
     status_type: "New Request" หรือ "Repair Completed"
