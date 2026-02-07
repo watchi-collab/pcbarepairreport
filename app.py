@@ -154,9 +154,53 @@ with st.sidebar:
     
     st.divider()
 
-# --- 4. LOGIN SYSTEM ---
+# --- ส่วนที่ 1: หน้าสาธารณะ (Public Tracking) ก่อน Login ---
 if not st.session_state.logged_in:
-    st.title("🔐 PCBA LOGIN")
+    tab1, tab2 = st.tabs(["🔍 ติดตามสถานะงาน (Public)", "🔐 เข้าสู่ระบบ (Staff Only)"])
+
+    with tab1:
+        st.title("🔎 PCBA Repair Tracking")
+        st.subheader("เช็คสถานะงานซ่อมของคุณ")
+        
+        # ช่องค้นหาแบบสาธารณะ
+        pub_search = st.text_input("ระบุเลข SN หรือ WO เพื่อค้นหา", key="pub_search").strip().upper()
+        
+        if pub_search:
+            with st.spinner("กำลังค้นหาข้อมูล..."):
+                df_pub = get_df("sheet1")
+                if not df_pub.empty:
+                    # กรองข้อมูลจาก SN หรือ WO
+                    result = df_pub[
+                        df_pub['sn'].astype(str).str.contains(pub_search) | 
+                        df_pub['wo'].astype(str).str.contains(pub_search)
+                    ].sort_values(by='user_time', ascending=False)
+
+                    if not result.empty:
+                        for _, r in result.iterrows():
+                            status = r.get('status', 'Pending')
+                            # กำหนดสีตามสถานะ
+                            color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+                            
+                            with st.container(border=True):
+                                c1, c2 = st.columns([3, 1])
+                                with c1:
+                                    st.markdown(f"**SN:** {r['sn']} | **Model:** {r['model']}")
+                                    st.caption(f"📅 วันที่แจ้ง: {r['user_time']} | 📍 สถานี: {r.get('station','-')}")
+                                with c2:
+                                    st.markdown(f"<div style='background:{color}; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
+                                
+                                if status != "Pending":
+                                    with st.expander("📝 ดูรายละเอียดการซ่อม"):
+                                        st.write(f"🛠 **วิธีแก้ไข:** {r.get('action', '-')}")
+                                        st.write(f"🕒 **เสร็จเมื่อ:** {r.get('tech_time', '-')}")
+                    else:
+                        st.warning("❌ ไม่พบข้อมูลที่ตรงกับเลขที่ระบุ")
+                else:
+                    st.error("ไม่สามารถเชื่อมต่อฐานข้อมูลได้")
+        else:
+            st.info("💡 กรุณากรอกเลข Serial Number หรือ Work Order เพื่อดูความคืบหน้า")
+
+    with tab2:
     with st.form("login"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
