@@ -107,15 +107,53 @@ def send_line_message(wo, sn, model, failure, status_type="New Request", operato
         return False
 
 
-# --- 3. SIDEBAR & LOGOUT ---
+# --- 3. SIDEBAR & LOGOUT (ปรับปรุงใหม่) ---
 with st.sidebar:
+    # เพิ่ม CSS เฉพาะใน Sidebar เพื่อให้ข้อความและปุ่มดูชัดเจนขึ้น
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            background-color: #1a1c23;
+            color: white;
+        }
+        .user-info {
+            padding: 15px;
+            background: linear-gradient(135deg, #004a99 0%, #002d5f 100%);
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #34495e;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     if st.session_state.logged_in:
-        st.markdown(f"""<div class="user-profile"><h3>👤 {st.session_state.user}</h3><p>{st.session_state.role.upper()}</p></div>""", unsafe_allow_html=True)
-        if st.button("🚪 Logout", use_container_width=True):
+        # แสดงข้อมูลผู้ใช้ในรูปแบบการ์ดที่สวยงาม
+        st.markdown(f"""
+            <div class="user-info">
+                <small style="color: #bdc3c7;">Logged in as:</small>
+                <h3 style="margin:0; color: white;">👤 {st.session_state.user}</h3>
+                <span style="background: #f39c12; color: black; padding: 2px 8px; border-radius: 5px; font-size: 0.8rem; font-weight: bold;">
+                    {st.session_state.role.upper()}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # ปุ่ม Logout แบบเด่นชัด
+        if st.button("🚪 Sign Out / ออกจากระบบ", use_container_width=True, type="secondary"):
             st.session_state.logged_in = False
+            st.session_state.user = ""
+            st.session_state.role = ""
             st.rerun()
+            
     st.divider()
-    st.caption("🟢 System Online" if status_conn else "🔴 System Offline")
+    
+    # สถานะระบบ (วางไว้ส่วนบนเพื่อให้เห็นชัดว่า Online หรือไม่)
+    if status_conn:
+        st.success("● System Online")
+    else:
+        st.error("● System Offline")
+    
+    st.divider()
 
 # --- 4. LOGIN SYSTEM ---
 if not st.session_state.logged_in:
