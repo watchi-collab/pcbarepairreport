@@ -154,7 +154,6 @@ with st.sidebar:
     
     st.divider()
 
-# --- ส่วนที่ 1: หน้าสาธารณะ (Public Tracking) ก่อน Login ---
 if not st.session_state.logged_in:
     tab1, tab2 = st.tabs(["🔍 ติดตามสถานะงาน (Public)", "🔐 เข้าสู่ระบบ (Staff Only)"])
 
@@ -162,7 +161,6 @@ if not st.session_state.logged_in:
         st.title("🔎 PCBA Repair Tracking")
         st.subheader("เช็คสถานะงานซ่อมของคุณ")
         
-        # ช่องค้นหาแบบสาธารณะ (เพิ่ม Model)
         c_search1, c_search2 = st.columns(2)
         with c_search1:
             pub_search = st.text_input("🔢 ระบุเลข SN หรือ WO", key="pub_search").strip().upper()
@@ -173,46 +171,64 @@ if not st.session_state.logged_in:
             with st.spinner("กำลังค้นหาข้อมูล..."):
                 df_pub = get_df("sheet1")
                 if not df_pub.empty:
-                    # สร้างเงื่อนไขการกรอง
                     query = pd.Series([True] * len(df_pub))
-                    
                     if pub_search:
                         query &= (df_pub['sn'].astype(str).str.contains(pub_search) | 
                                  df_pub['wo'].astype(str).str.contains(pub_search))
-                    
                     if model_search:
                         query &= (df_pub['model'].astype(str).str.contains(model_search))
 
                     result = df_pub[query].sort_values(by='user_time', ascending=False)
 
                     if not result.empty:
-                        st.write(f"🔍 พบข้อมูลทั้งหมด {len(result)} รายการ")
+                        st.markdown(f"<p style='color:black;'>🔍 พบข้อมูลทั้งหมด {len(result)} รายการ</p>", unsafe_allow_html=True)
                         for _, r in result.iterrows():
                             status = r.get('status', 'Pending')
-                            color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+                            card_bg = "#FFF9F0" if status == "Pending" else "#F0FFF4"
+                            border_c = "#FFA500" if status == "Pending" else "#28A745"
                             
                             with st.container(border=True):
+                                # บังคับตัวหนังสือสีดำในส่วน Card Header
+                                st.markdown(f"""
+                                    <div style="background-color:{card_bg}; border-left: 5px solid {border_c}; padding: 12px; border-radius: 5px;">
+                                        <h4 style="margin:0; color: #000000;">🔢 SN: <b>{r['sn']}</b></h4>
+                                        <p style="margin:5px 0; color: #000000; font-size: 0.9rem;">📦 <b>Model:</b> {r['model']} | 🔢 <b>WO:</b> {r.get('wo','-')}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                                
                                 c1, c2 = st.columns([3, 1])
                                 with c1:
-                                    st.markdown(f"**SN:** {r['sn']} | **Model:** {r['model']}")
-                                    st.caption(f"📅 วันที่แจ้ง: {r['user_time']} | 📍 สถานี: {r.get('station','-')}")
+                                    st.markdown(f"<p style='color: #000000; margin: 5px 0;'>📅 วันที่แจ้ง: {r['user_time']}</p>", unsafe_allow_html=True)
+                                    st.markdown(f"<p style='color: #000000; margin: 0;'>📍 สถานี: {r.get('station','-')}</p>", unsafe_allow_html=True)
                                 with c2:
-                                    st.markdown(f"<div style='background:{color}; color:white; padding:5px; border-radius:5px; text-align:center; font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
+                                    # แถบสถานะแบบสีตัวหนังสือดำ
+                                    st.markdown(f"<div style='background: {card_bg}; border: 1px solid {border_c}; color: black; padding: 5px; border-radius: 5px; text-align: center; font-weight: bold;'>{status}</div>", unsafe_allow_html=True)
                                 
                                 if status != "Pending":
                                     with st.expander("📝 ดูรายละเอียดการซ่อม"):
-                                        st.write(f"🛠 **วิธีแก้ไข:** {r.get('action', '-')}")
-                                        st.write(f"🕒 **เสร็จเมื่อ:** {r.get('tech_time', '-')}")
+                                        st.markdown(f"<p style='color:black;'>🛠 <b>วิธีแก้ไข:</b> {r.get('action', '-')}</p>", unsafe_allow_html=True)
+                                        st.markdown(f"<p style='color:black;'>🕒 <b>เสร็จเมื่อ:</b> {r.get('tech_time', '-')}</p>", unsafe_allow_html=True)
                     else:
                         st.warning("❌ ไม่พบข้อมูลที่ตรงกับเงื่อนไขที่ระบุ")
                 else:
                     st.error("ไม่สามารถเชื่อมต่อฐานข้อมูลได้")
-        else:
-            st.info("💡 กรุณากรอกเลข Serial Number, Work Order หรือ Model เพื่อดูความคืบหน้า")
-
     with tab2:
         # แก้ไขโครงสร้าง Form ตรงนี้ให้ถูกต้อง
+        with st.container(border=True):
+                    # ปรับแต่งสี Card และตัวหนังสือให้ดำชัดเจน
+                    st.markdown(f"""
+                        <div style="background-color:{card_color}; border-left: 5px solid {border_color}; padding: 12px; border-radius: 5px;">
+                            <h4 style="margin:0; color: #000000;">🔢 SN: <b>{r['sn']}</b></h4>
+                            <p style="margin:5px 0; color: #000000;">📦 <b>Model:</b> {r['model']} | <b>WO:</b> {r.get('wo','-')}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    c1, c2 = st.columns([2, 1])
+                    with c1:
+                        st.markdown(f"<p style='color: #000000; margin: 5px 0;'>📅 {r['user_time']}</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color: #000000; margin: 0;'>🚩 สถานะ: <b>{status}</b></p>", unsafe_allow_html=True)
         st.subheader("พนักงาน/ช่างซ่อม เข้าสู่ระบบ")
+        
         with st.form("login_form"):
             u = st.text_input("Username").strip()
             p = st.text_input("Password", type="password").strip()
