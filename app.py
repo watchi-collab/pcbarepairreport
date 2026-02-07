@@ -249,6 +249,37 @@ if role == "admin":
             pend = len(df_filtered[df_filtered['status'] == 'Pending'])
             scrap = len(df_filtered[df_filtered['status'] == 'Scrapped'])
             success_rate = (comp / total * 100) if total > 0 else 0
+
+            st.markdown("""
+                <style>
+                [data-testid="stMetricValue"] {
+                    color: #1f77b4 !important; /* สีน้ำเงินเข้มสำหรับตัวเลขหลัก */
+                }
+                [data-testid="stMetricLabel"] {
+                    color: #444444 !important; /* สีเทาเข้มสำหรับหัวข้อ */
+                }
+                div[data-testid="metric-container"] {
+                    background-color: #f8f9fa; /* พื้นหลังเทาอ่อนมาก */
+                    border: 1px solid #e0e0e0;
+                    padding: 15px;
+                    border-radius: 10px;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.metric("Total Jobs", f"{total} แผง")
+            with k2:
+                st.metric("Completed", f"{comp} แผง", delta=f"{success_rate:.1f}% Rate")
+            with k3:
+                # สำหรับ Pending อาจจะใช้สีส้มเพื่อเตือน
+                st.metric("Pending", f"{pend} แผง", delta=f"{pend} งานค้าง", delta_color="inverse")
+            with k4:
+                # แสดง Lead Time ที่คำนวณไว้
+                st.metric("Avg. Lead Time", f"{avg_lt:.1f} Hrs")
+
+            st.divider()
             
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Total Jobs", f"{total} แผง", help="จำนวนงานทั้งหมดในช่วงเวลาที่เลือก")
