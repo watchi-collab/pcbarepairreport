@@ -384,148 +384,101 @@ elif role == "user":
                     st.error("❌ กรุณาระบุ WO, SN และ Model")
                 else:
                     with st.spinner("กำลังบันทึกข้อมูล..."):
-                        # ดึง Product Name จาก model_mat
                         df_models = get_df("model_mat")
                         match = df_models[df_models['model'].astype(str) == str(model)]
                         p_name = match.iloc[0]['product_name'] if not match.empty else "-"
-
                         img_b64 = save_image_b64(u_file)
 
-                        # บันทึกข้อมูลตามลำดับคอลัมน์ A-R
                         new_data = [
-                            st.session_state.user,  # A: user_id
-                            wo,                     # B: wo
-                            sn,                     # C: sn
-                            model,                  # D: model
-                            p_name,                 # E: product
-                            station,                # F: station
-                            failure,                # G: failure
-                            "Pending",              # H: status
-                            datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
-                            "", "", "", "", "",     # J-N: repair info
-                            "",                     # O: tech_id
-                            "",                     # P: tech_time
-                            img_b64,                # Q: img_user
-                            ""                      # R: img_tech
+                            st.session_state.user, wo, sn, model, p_name, station, failure, 
+                            "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                            "", "", "", "", "", "", "", img_b64, ""
                         ]
                         
                         ss.worksheet("sheet1").append_row(new_data)
-                        
-                        # แจ้งเตือน LINE (ส่ง WO เข้าไปด้วย)
                         send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        
-                        st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ! (Product: {p_name})")
+                        st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ!")
                         st.balloons()
 
+    # --- ฟีเจอร์ที่ 2: ติดตามสถานะงาน (User) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-        
         search_input = st.text_input("🔍 ค้นหาด้วย SN หรือเลข WO", placeholder="พิมพ์เพื่อค้นหา...").strip().upper()
 
-        if search_input:
-            with st.spinner("กำลังค้นหาข้อมูล..."):
-                df_main = get_df("sheet1")
-                if not df_main.empty:
+        with st.spinner("กำลังค้นหาข้อมูล..."):
+            df_main = get_df("sheet1")
+            if not df_main.empty:
+                # กรองข้อมูล
+                if search_input:
                     filtered_df = df_main[
                         df_main['sn'].astype(str).str.contains(search_input) |
                         df_main['wo'].astype(str).str.contains(search_input)
                     ].sort_values(by='user_time', ascending=False)
-
-                    if not filtered_df.empty:
-                        for idx, r in filtered_df.iterrows():
-                            status = r['status']
-                            status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
-                            row_index = idx + 2  # ลำดับแถวใน Google Sheets
-
-                            with st.container(border=True):
-                                c1, c2, c3 = st.columns([2.5, 1, 1.2])
-                                with c1:
-                                    st.subheader(f"🔢 SN: {r['sn']}")
-                                    st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
-                                    st.caption(f"📅 แจ้งเมื่อ: {r['user_time']}")
-                                
-                                with c2:
-                                    st.markdown(f"<div style='background:{status_color};padding:10px;border-radius:10px;text-align:center;color:white;font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
-                                
-                                with c3:
-                                    if status == "Pending":
-                                        now = datetime.now()
-                                        can_click = True
-                                        diff_min = 999
-                                        
-                                        # ตรวจสอบเวลาแจ้งเตือนล่าสุดจากคอลัมน์ S (last_notify)
-                                        last_notify_str = str(r.get('last_notify', ''))
-                                        if last_notify_str and last_notify_str not in ["", "None", "nan"]:
-                                            try:
-                                                last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
-                                                diff_min = (now - last_notify_dt).total_seconds() / 60
-                                                if diff_min < 10:
-                                                    can_click = False
-                                            except: pass
-
-                                        if can_click:
-                                            if st.button("🔔 ตามงานซ่อม", key=f"re_{idx}", use_container_width=True):
-                                                # 1. ส่ง LINE
-                                                success = send_line_message(
-                                                    r.get('wo', '-'), r['sn'], r['model'], 
-                                                    "❗ ติดตามงานซ่อม (แจ้งเตือนซ้ำ)", 
-                                                    status_type="Re-notify", 
-                                                    operator=st.session_state.user
-                                                )
-                                                if success:
-                                                    # 2. บันทึกเวลาลง Google Sheets คอลัมน์ S (ลำดับที่ 19)
-                                                    ws = ss.worksheet("sheet1")
-                                                    ws.update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
-                                                    st.toast("ส่งแจ้งเตือนสำเร็จ!", icon="🚀")
-                                                    st.rerun()
-                                        else:
-                                            st.info(f"⏳ รออีก {int(10 - diff_min) + 1} นาที")
-                                            st.button("🔔 ตามงานซ่อม", key=f"re_{idx}", use_container_width=True, disabled=True)
-
-                                if status != "Pending":
-                                    with st.expander("📝 รายละเอียดการซ่อม"):
-                                        st.write(f"**🔍 สาเหตุ:** {r.get('real_case', '-')}")
-                                        st.write(f"**🛠 วิธีแก้:** {r.get('action', '-')}")
-
-    # --- ประวัติ 5 รายการล่าสุด (ปรับปรุงใหม่ให้เสถียรขึ้น) ---
-st.divider()
-st.subheader("🕒 ประวัติการแจ้งซ่อมของคุณ (5 รายการล่าสุด)")
-        
-        # ดึงข้อมูลใหม่เสมอเพื่อให้สถานะอัปเดต
-        df_all = get_df("sheet1")
-        
-        if not df_all.empty:
-            # ตรวจสอบว่ามีคอลัมน์ user_id หรือไม่
-            if 'user_id' in df_all.columns:
-                # กรองข้อมูลโดยแปลงทั้งสองฝั่งเป็น String เพื่อป้องกัน Error กรณี Username เป็นตัวเลข
-                user_jobs = df_all[df_all['user_id'].astype(str) == str(st.session_state.user)]
-                
-                if not user_jobs.empty:
-                    # เอา 5 รายการล่าสุดและเรียงจากใหม่ไปเก่า
-                    display_jobs = user_jobs.tail(5).iloc[::-1]
-                    
-                    for _, r in display_jobs.iterrows():
-                        with st.container(border=True):
-                            h1, h2, h3 = st.columns([2, 2, 1])
-                            with h1:
-                                st.write(f"**SN:** {r['sn']}")
-                                st.write(f"**WO:** {r.get('wo', '-')}")
-                            with h2:
-                                st.write(f"**วันที่:** {r['user_time']}")
-                                st.write(f"**Model:** {r['model']}")
-                            with h3:
-                                stt = r['status']
-                                # ปรับสีให้ตรงกับสถานะมาตรฐาน
-                                color = "#FFA500" if stt == "Pending" else "#28A745" if stt == "Completed" else "#DC3545"
-                                st.markdown(f"""
-                                    <div style='background:{color}; color:white; padding:10px; 
-                                    border-radius:8px; text-align:center; font-weight:bold; font-size:14px;'>
-                                        {stt}
-                                    </div>
-                                """, unsafe_allow_html=True)
                 else:
-                    st.info("💡 คุณยังไม่มีประวัติการแจ้งซ่อมในระบบ")
-            else:
-                st.error("❌ ไม่พบคอลัมน์ 'user_id' ในฐานข้อมูล")
-        else:
-            st.caption("ไม่มีข้อมูลในระบบ")
+                    # ถ้าไม่ได้ค้นหา ให้แสดงเฉพาะงานของ User คนนี้
+                    filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].sort_values(by='user_time', ascending=False).head(10)
+
+                if not filtered_df.empty:
+                    for idx, r in filtered_df.iterrows():
+                        status = r.get('status', 'Pending')
+                        status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+                        row_index = idx + 2
+
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([2.5, 1, 1.2])
+                            with c1:
+                                st.subheader(f"🔢 SN: {r['sn']}")
+                                st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
+                                st.caption(f"📅 แจ้งเมื่อ: {r['user_time']}")
+                            
+                            with c2:
+                                st.markdown(f"<div style='background:{status_color};padding:10px;border-radius:10px;text-align:center;color:white;font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
+                            
+                            with c3:
+                                if status == "Pending":
+                                    now = datetime.now()
+                                    can_click = True
+                                    diff_min = 999
+                                    last_notify_str = str(r.get('last_notify', ''))
+                                    
+                                    if last_notify_str and last_notify_str not in ["", "None", "nan"]:
+                                        try:
+                                            last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
+                                            diff_min = (now - last_notify_dt).total_seconds() / 60
+                                            if diff_min < 10: can_click = False
+                                        except: pass
+
+                                    if can_click:
+                                        if st.button("🔔 ตามงานซ่อม", key=f"re_{idx}", use_container_width=True):
+                                            success = send_line_message(r.get('wo', '-'), r['sn'], r['model'], "❗ ตามงานซ้ำ", status_type="Re-notify", operator=st.session_state.user)
+                                            if success:
+                                                ws = ss.worksheet("sheet1")
+                                                ws.update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
+                                                st.toast("ส่งแจ้งเตือนสำเร็จ!")
+                                                st.rerun()
+                                    else:
+                                        st.info(f"⏳ รอ {int(10 - diff_min) + 1} นาที")
+
+                            if status != "Pending":
+                                with st.expander("📝 รายละเอียดการซ่อม"):
+                                    st.write(f"**🔍 สาเหตุ:** {r.get('real_case', '-')}")
+                                    st.write(f"**🛠 วิธีแก้:** {r.get('action', '-')}")
+                else:
+                    st.info("ไม่พบรายการข้อมูลที่เกี่ยวข้อง")
+
+    # --- ส่วนที่ 3: ประวัติ 5 รายการล่าสุด (อยู่ระดับเดียวกับ if/elif menu) ---
+    st.divider()
+    st.subheader("🕒 ประวัติการแจ้งซ่อมล่าสุดของคุณ")
+    df_history = get_df("sheet1")
+    if not df_history.empty and 'user_id' in df_history.columns:
+        user_jobs = df_history[df_history['user_id'].astype(str) == str(st.session_state.user)].tail(5).iloc[::-1]
+        if not user_jobs.empty:
+            for _, r in user_jobs.iterrows():
+                with st.container(border=True):
+                    h1, h2, h3 = st.columns([2, 2, 1])
+                    with h1: st.write(f"**SN:** {r['sn']}\n**WO:** {r.get('wo', '-')}")
+                    with h2: st.write(f"**วันที่:** {r['user_time']}\n**Model:** {r['model']}")
+                    with h3:
+                        stt = r['status']
+                        color = "#FFA500" if stt == "Pending" else "#28A745" if stt == "Completed" else "#DC3545"
+                        st.markdown(f"<div style='background:{color}; color:white; padding:10px; border-radius:8px; text-align:center; font-weight:bold;'>{stt}</div>", unsafe_allow_html=True)
