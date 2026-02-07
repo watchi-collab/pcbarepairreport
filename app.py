@@ -268,6 +268,7 @@ elif role == "technician":
     if target_sn:
         df_main = get_df("sheet1")
         if not df_main.empty:
+            # ค้นหา SN (สมมติ SN อยู่คอลัมน์ CIndex 2)
             jobs = df_main[df_main['sn'].astype(str) == target_sn].copy()
             if not jobs.empty:
                 options = [(i + 2, f"แถว {i + 2} | {r['status']} | {r['model']}") for i, r in jobs.iterrows()]
@@ -287,7 +288,8 @@ elif role == "technician":
                         st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']}")
                         st.success(f"**🏷️ Product Name:** {p_name}")
                         st.error(f"⚠️ **Symptom:** {job.get('failure', 'N/A')}")
-                    if job.get('img_user'): c_u2.image(f"data:image/jpeg;base64,{job['img_user']}", caption="Before")
+                    if job.get('img_user'): 
+                        c_u2.image(f"data:image/jpeg;base64,{job['img_user']}", caption="Before")
 
                 with st.form("repair_form"):
                     rc = st.text_input("Real Case", value=job.get('real_case', ''))
@@ -299,18 +301,31 @@ elif role == "technician":
 
                     if st.form_submit_button("💾 Save Update"):
                         ws = ss.worksheet("sheet1")
-                        ws.update(f'D{sel_row}', [[p_name]])  # บันทึก Product ลงคอลัมน์ D
-                        ws.update(f'G{sel_row}', [[stt]])
-                        ws.update(f'I{sel_row}:M{sel_row}', [[rc, dt, ac, cl, "-"]])
-                        ws.update(f'N{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
-                        if imgs: ws.update(f'P{sel_row}', [[save_multiple_images_b64(imgs)]])
+                        
+                        # --- การบันทึกข้อมูลตามโครงสร้างใหม่ ---
+                        # 1. บันทึก Product Name (E) และ Status (H)
+                        ws.update(f'E{sel_row}', [[p_name]])
+                        ws.update(f'H{sel_row}', [[stt]])
+                        
+                        # 2. บันทึกรายละเอียดการซ่อม (J:real_case ถึง N:remark)
+                        ws.update(f'J{sel_row}:N{sel_row}', [[rc, dt, ac, cl, "-"]])
+                        
+                        # 3. บันทึกข้อมูล Tech ID (O) และ Tech Time (P)
+                        ws.update(f'O{sel_row}', [[st.session_state.user]])
+                        ws.update(f'P{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
+                        
+                        # 4. บันทึกรูปภาพของช่าง (R) (ใช้ R เพื่อไม่ให้ทับกับรูป User ใน Q)
+                        if imgs: 
+                            ws.update(f'R{sel_row}', [[save_multiple_images_b64(imgs)]])
 
                         # LINE Notification
-                        send_line_message(job['sn'], job['model'], f"ผลการซ่อม: {stt}", status_type="Completed",
-                                          operator=st.session_state.user)
-                        st.success("อัปเดตงานซ่อมเรียบร้อย!")
+                        send_line_message(job['sn'], job['model'], f"ผลการซ่อม: {stt}", 
+                                         status_type="Completed", operator=st.session_state.user)
+                        
+                        st.success(f"✅ อัปเดตงานซ่อม SN: {job['sn']} โดยช่าง {st.session_state.user} เรียบร้อย!")
+                        st.rerun()
             else:
-                st.warning("ไม่พบข้อมูล SN นี้")
+                st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
 
 elif role == "user":
     query_params = st.query_params
@@ -322,36 +337,59 @@ elif role == "user":
         index=default_index
     )
 
-    # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ ---
-    if menu == "🚀 แจ้งซ่อมใหม่":
-        st.title("📱 PCBA Repair Request")
+  # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
+if menu == "🚀 แจ้งซ่อมใหม่":
+    st.title("📱 PCBA Repair Request")
+    
+    with st.form("request_form"):
+        # เพิ่มช่องบันทึก WO
+        wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
+        sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
+        model = st.selectbox("Model", get_dropdown_options("model_mat"))
+        station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+        failure = st.text_area("Symptom / Failure Description")
+        u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
 
-        # เพิ่มปุ่มสแกนผ่านกล้อง (ใช้สำหรับถ่ายรูป Barcode เพื่ออ่านค่า)
-        with st.expander("📷 เปิดกล้องสแกน SN (แทนการพิมพ์)"):
-            scan_file = st.camera_input("สแกน Barcode/QR Code บนบอร์ด")
-            if scan_file:
-                st.info("💡 ระบบกำลังประมวลผลรูปภาพ (ในอนาคตเชื่อมต่อ AI OCR ได้)")
+        if st.form_submit_button("🚀 Submit Request"):
+            if model == "--กรุณาเลือก--" or not sn or not wo:
+                st.error("❌ กรุณาระบุ WO, SN และ Model")
+            else:
+                with st.spinner("กำลังบันทึกข้อมูล..."):
+                    # ดึง Product Name จาก model_mat
+                    df_models = get_df("model_mat")
+                    match = df_models[df_models['model'].astype(str) == str(model)]
+                    p_name = match.iloc[0]['product_name'] if not match.empty else "-"
 
-        with st.form("request_form"):
-            sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
-            model = st.selectbox("Model", get_dropdown_options("model_mat"))
-            station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
-            failure = st.text_area("Symptom / Failure Description")
-            u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
+                    img_b64 = save_image_b64(u_file)
 
-            if st.form_submit_button("🚀 Submit Request"):
-                if model == "--กรุณาเลือก--" or not sn:
-                    st.error("❌ กรุณาระบุ SN และ Model")
-                else:
-                    with st.spinner("กำลังบันทึกข้อมูล..."):
-                        img_b64 = save_image_b64(u_file)
-                        ss.worksheet("sheet1").append_row(
-                            ["", sn, model, "", station, failure, "Pending",
-                             datetime.now().strftime("%Y-%m-%d %H:%M"),
-                             "", "", "", "", "", "", img_b64, ""]
-                        )
-                        send_line_message(sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        st.success("แจ้งซ่อมสำเร็จ!")
+                    # บันทึกข้อมูลตามลำดับคอลัมน์ใน image_ef969f.png
+                    # A:user_id, B:wo, C:sn, D:model, E:product, F:station, G:failure, H:status, I:user_time...
+                    new_data = [
+                        st.session_state.user,  # บันทึก user_id
+                        wo,                     # บันทึก WO
+                        sn, 
+                        model, 
+                        p_name,                 # Product Name อัตโนมัติ
+                        station, 
+                        failure, 
+                        "Pending",              # Status เริ่มต้น
+                        datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "", "", "", "", "",     # เว้นว่างสำหรับข้อมูลการซ่อม (I-M)
+                        "",                     # เว้นว่างสำหรับ tech_id (N)
+                        "",                     # เว้นว่างสำหรับ tech_time (O)
+                        img_b64,                # img_user (P)
+                        ""                      # img_tech (Q)
+                    ]
+                    
+                    ss.worksheet("sheet1").append_row(new_data)
+                    send_line_message(sn, model, failure, status_type="New Request", operator=st.session_state.user)
+                    st.success(f"✅ บันทึก WO: {wo} สำเร็จ!")
+                        
+                        # 4. ส่งแจ้งเตือน LINE
+                        send_line_message(wo,sn, model, failure, status_type="New Request", operator=st.session_state.user)
+                        
+                        st.success(f"✅ แจ้งซ่อมสำเร็จ! (Product: {p_name})")
+                        st.balloons()
 
     # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (รองรับสแกน SN) ---
     elif menu == "🔍 ติดตามสถานะงาน":
