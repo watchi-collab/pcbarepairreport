@@ -416,59 +416,80 @@ elif role == "user":
                         st.success(f"✅ บันทึก WO: {wo} สำเร็จ!")
                         st.balloons()
 
-    # --- ฟีเจอร์ที่ 2: หน้าติดตามสถานะและตามงาน (/?page=track) ---
+    # --- ฟีเจอร์ที่ 2: หน้าติดตามสถานะและตามงาน (ปรับปรุงใหม่) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
         search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)", placeholder="พิมพ์เลขที่ต้องการค้นหา...").strip().upper()
 
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # กรองข้อมูล
             if search_input:
                 filtered_df = df_main[df_main['sn'].astype(str).str.contains(search_input) | 
                                     df_main['wo'].astype(str).str.contains(search_input)]
             else:
-                # แสดงรายการของตัวเอง 10 รายการล่าสุด
-                filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(10)
+                filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(15)
 
             for idx, r in filtered_df.iloc[::-1].iterrows():
                 status = r.get('status', 'Pending')
                 row_index = idx + 2
                 
-                # แยกสีตามสถานะให้ชัดเจน
-                card_color = "#FFF9F0" if status == "Pending" else "#F0FFF4"
-                border_color = "#FFA500" if status == "Pending" else "#28A745"
+                # --- [เพิ่ม] กำหนดคำอธิบายสถานะให้ชัดเจนว่า "รออะไร" ---
+                if status == "Pending":
+                    status_desc = "🟠 **รอช่างตรวจสอบ (Pending)**"
+                    waiting_for = "⏳ กำลังรอ: ช่างสแกนรับงานเข้าคิวซ่อม"
+                    card_color = "#FFF9F0"
+                    border_color = "#FFA500"
+                elif status == "Completed":
+                    status_desc = "✅ **ซ่อมเสร็จสิ้น (Completed)**"
+                    waiting_for = "📦 สถานะ: งานพร้อมส่งกลับ/เข้าขั้นตอนถัดไป"
+                    card_color = "#F0FFF4"
+                    border_color = "#28A745"
+                elif status == "Scrapped":
+                    status_desc = "❌ **คัดทิ้ง (Scrapped)**"
+                    waiting_for = "⚠️ สถานะ: ซ่อมไม่ได้/รอทำเรื่องตัดทิ้ง"
+                    card_color = "#FFF5F5"
+                    border_color = "#DC3545"
+                else:
+                    status_desc = f"🔍 **{status}**"
+                    waiting_for = ""
+                    card_color = "#F8F9FA"
+                    border_color = "#6C757D"
 
                 with st.container(border=True):
                     # ส่วนหัว Card
                     st.markdown(f"""
-                        <div style="background-color:{card_color}; border-left: 5px solid {border_color}; padding: 10px; border-radius: 5px;">
-                            <h4 style="margin:0;">🔢 SN: {r['sn']}</h4>
-                            <small>📦 Model: {r['model']} | WO: {r.get('wo','-')}</small>
+                        <div style="background-color:{card_color}; border-left: 5px solid {border_color}; padding: 12px; border-radius: 5px;">
+                            <h4 style="margin:0; color:#1a1a1a;">🔢 SN: {r['sn']}</h4>
+                            <p style="margin:4px 0; font-size:0.9rem; color:#444;">📦 Model: {r['model']} | WO: {r.get('wo','-')}</p>
+                            <div style="font-weight:bold; color:#d35400; font-size:0.85rem;">{waiting_for}</div>
                         </div>
                     """, unsafe_allow_html=True)
 
                     c1, c2 = st.columns([2, 1])
                     with c1:
-                        st.write(f"📅 {r['user_time']}")
-                        st.write(f"🚩 สถานะ: **{status}**")
+                        st.write(f"📍 **สถานะปัจจุบัน:** {status_desc}")
+                        st.write(f"⏱️ **เวลาที่แจ้ง:** {r['user_time']}")
+                        
+                        # --- [เพิ่ม] แสดงข้อมูลช่างถ้าซ่อมเสร็จแล้ว ---
+                        if status != "Pending" and r.get('tech_id'):
+                            st.write(f"👷 **ช่างผู้ดูแล:** {r['tech_id']}")
+                            st.write(f"🏁 **เสร็จเมื่อ:** {r.get('tech_time', '-')}")
                     
                     with c2:
                         if status == "Pending":
-                            # ระบบ Cooldown ป้องกันการกดย้ำเกินไป
+                            # ระบบ Cooldown
                             now = datetime.now()
                             last_notify_str = str(r.get('last_notify', ''))
                             can_notify = True
                             if last_notify_str and last_notify_str not in ["", "None", "nan"]:
                                 try:
                                     last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
-                                    if (now - last_notify_dt).total_seconds() < 600: # 10 นาที
+                                    if (now - last_notify_dt).total_seconds() < 600:
                                         can_notify = False
                                 except: pass
 
                             if can_notify:
-                                if st.button("🔔 ตามงาน", key=f"btn_{idx}", type="primary", use_container_width=True):
-                                    # ส่ง LINE หัวข้อ "ตามงาน"
+                                if st.button("🔔 ตามงานด่วน", key=f"btn_{idx}", type="primary", use_container_width=True):
                                     success = send_line_message(
                                         r.get('wo','-'), r['sn'], r['model'], 
                                         "❗ รบกวนตรวจสอบ งานยังไม่ได้รับการแก้ไข", 
@@ -477,12 +498,14 @@ elif role == "user":
                                     )
                                     if success:
                                         ss.worksheet("sheet1").update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
-                                        st.toast("ส่งแจ้งเตือนติดตามงานแล้ว!", icon="🔔")
+                                        st.toast("ส่งแจ้งเตือนเข้า LINE กลุ่มช่างแล้ว!", icon="🔔")
                                         st.rerun()
                             else:
-                                st.button("⏳ รอสักครู่", key=f"wait_{idx}", disabled=True, use_container_width=True)
+                                st.button("⏳ เพิ่งตามไป (รอ 10น.)", key=f"wait_{idx}", disabled=True, use_container_width=True)
 
                     if status != "Pending":
-                        with st.expander("📝 รายละเอียดการซ่อม"):
-                            st.write(f"🛠 **ผลการซ่อม:** {r.get('action', '-')}")
-                            st.write(f"🔍 **สาเหตุ:** {r.get('real_case', '-')}")
+                        with st.expander("📝 ดูสรุปผลการซ่อม"):
+                            st.info(f"🛠 **วิธีแก้ไข:** {r.get('action', '-')}")
+                            st.warning(f"🔍 **สาเหตุที่พบ:** {r.get('real_case', '-')}")
+                            if r.get('img_tech'):
+                                st.image(f"data:image/jpeg;base64,{r['img_tech'].split(',')[0]}", caption="รูปหลักฐานจากช่าง", width=300)
