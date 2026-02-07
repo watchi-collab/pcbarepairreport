@@ -5,3 +5,4 @@ oauth2client
 plotly
 Pillow
 requests
+xlsxwriter
