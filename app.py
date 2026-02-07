@@ -340,7 +340,7 @@ if role == "admin":
                 st.success("บันทึกข้อมูลเรียบร้อยแล้ว!")
                 st.rerun()
 
-    with tabs[2]:  # Dropdowns
+    with tabs[3]:  # Dropdowns
         drop = st.selectbox("เลือก Dropdown",
                             ["station_dropdowns", "defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
         df_drop = get_df(drop)
@@ -351,7 +351,7 @@ if role == "admin":
             ws.update([edited_drop.columns.values.tolist()] + edited_drop.values.tolist());
             st.success("Updated!")
 
-    with tabs[3]:
+    with tabs[2]:
         st.dataframe(df_main, use_container_width=True)
 
     with tabs[4]:  # QA Gallery
