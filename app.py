@@ -363,8 +363,12 @@ elif role == "technician":
 
 
 elif role == "user":
+    # 1. จัดการ URL Query Parameters เพื่อแยกหน้า
     query_params = st.query_params
-    default_index = 1 if query_params.get("page") == "track" else 0
+    page_now = query_params.get("page", "request")  # ค่าเริ่มต้นคือหน้าแจ้งซ่อม
+
+    # ตั้งค่า Index ของ Radio ตาม URL
+    default_index = 0 if page_now == "request" else 1
 
     menu = st.sidebar.radio(
         "📍 เมนูการใช้งาน",
@@ -372,115 +376,102 @@ elif role == "user":
         index=default_index
     )
 
-# --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
+    # --- ฟีเจอร์ที่ 1: หน้าแจ้งซ่อมใหม่ (/?page=request) ---
     if menu == "🚀 แจ้งซ่อมใหม่":
         st.title("📱 PCBA Repair Request")
-        
-        # ดึงค่า Station ที่ผูกกับ User ไว้ตอนล็อกอิน
         u_station = st.session_state.get('station', '-')
 
         with st.form("request_form"):
-            c_top1, c_top2 = st.columns(2)
-            with c_top1:
-                wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
-            with c_top2:
-                sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN...").upper()
+            col1, col2 = st.columns(2)
+            with col1:
+                wo = st.text_input("Work Order (WO)", placeholder="เลข WO...").strip().upper()
+            with col2:
+                sn = st.text_input("Serial Number (SN)", placeholder="สแกน SN...").upper()
             
             model = st.selectbox("Model", get_dropdown_options("model_mat"))
+            st.info(f"📍 **แจ้งจากสถานี:** {u_station}")
             
-            # แสดง Station อัตโนมัติ (User ไม่ต้องเลือกเอง)
-            st.info(f"📍 **Station ของคุณ:** {u_station}")
-            
-            failure = st.text_area("Symptom / Failure Description")
+            failure = st.text_area("Symptom / Failure Description (อาการเสีย)")
             u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
 
-            if st.form_submit_button("🚀 Submit Request"):
+            if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
                 if model == "--กรุณาเลือก--" or not sn or not wo:
-                    st.error("❌ กรุณาระบุ WO, SN และ Model")
+                    st.error("❌ กรุณาระบุ WO, SN และ Model ให้ครบถ้วน")
                 else:
-                    with st.spinner("กำลังบันทึกข้อมูล..."):
-                        # ดึง Product Name จาก model_mat
+                    with st.spinner("กำลังบันทึก..."):
                         df_models = get_df("model_mat")
                         match = df_models[df_models['model'].astype(str) == str(model)]
                         p_name = match.iloc[0]['product_name'] if not match.empty else "-"
-
                         img_b64 = save_image_b64(u_file)
 
-                        # บันทึกข้อมูลลง Sheet1 (ใช้ u_station ที่ผูกไว้)
                         new_data = [
-                            st.session_state.user,  # A: user_id
-                            wo,                     # B: wo
-                            sn,                     # C: sn
-                            model,                  # D: model
-                            p_name,                 # E: product
-                            u_station,              # F: station (ผูกมาให้แล้ว)
-                            failure,                # G: failure
-                            "Pending",              # H: status
-                            datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
-                            "", "", "", "", "",     # J-N: repair info
-                            "",                     # O: tech_id
-                            "",                     # P: tech_time
-                            img_b64,                # Q: img_user
-                            ""                      # R: img_tech
+                            st.session_state.user, wo, sn, model, p_name, u_station, failure, 
+                            "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                            "", "", "", "", "", "", "", img_b64, ""
                         ]
                         
                         ss.worksheet("sheet1").append_row(new_data)
+                        # ส่ง LINE หัวข้อ "แจ้งซ่อมใหม่"
                         send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        st.success(f"✅ บันทึกเรียบร้อยจาก Station: {u_station}")
+                        st.success(f"✅ บันทึก WO: {wo} สำเร็จ!")
                         st.balloons()
 
+    # --- ฟีเจอร์ที่ 2: หน้าติดตามสถานะและตามงาน (/?page=track) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือเลข WO", placeholder="ระบุเลขเพื่อค้นหา...").strip().upper()
+        search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)", placeholder="พิมพ์เลขที่ต้องการค้นหา...").strip().upper()
 
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # Logic การกรองข้อมูล (เหมือนเดิม)
+            # กรองข้อมูล
             if search_input:
                 filtered_df = df_main[df_main['sn'].astype(str).str.contains(search_input) | 
                                     df_main['wo'].astype(str).str.contains(search_input)]
             else:
+                # แสดงรายการของตัวเอง 10 รายการล่าสุด
                 filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(10)
 
             for idx, r in filtered_df.iloc[::-1].iterrows():
                 status = r.get('status', 'Pending')
                 row_index = idx + 2
                 
-                # กำหนดสีตามสถานะ
-                bg_color = "#FFF4E5" if status == "Pending" else "#E8F5E9"
-                border_color = "#FFA500" if status == "Pending" else "#2E7D32"
+                # แยกสีตามสถานะให้ชัดเจน
+                card_color = "#FFF9F0" if status == "Pending" else "#F0FFF4"
+                border_color = "#FFA500" if status == "Pending" else "#28A745"
 
-                with st.container():
-                    # จัดหน้าใหม่โดยใช้ HTML เข้าช่วยให้ดูเป็นสัดส่วน
+                with st.container(border=True):
+                    # ส่วนหัว Card
                     st.markdown(f"""
-                        <div style="background-color:{bg_color}; border-left: 5px solid {border_color}; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
-                            <h3 style="margin:0; color:#333;">🔢 SN: {r['sn']}</h3>
-                            <p style="margin:5px 0;"><b>WO:</b> {r.get('wo','-')} | <b>Model:</b> {r['model']}</p>
-                            <small>🕒 แจ้งเมื่อ: {r['user_time']}</small>
+                        <div style="background-color:{card_color}; border-left: 5px solid {border_color}; padding: 10px; border-radius: 5px;">
+                            <h4 style="margin:0;">🔢 SN: {r['sn']}</h4>
+                            <small>📦 Model: {r['model']} | WO: {r.get('wo','-')}</small>
                         </div>
                     """, unsafe_allow_html=True)
 
-                    c1, c2 = st.columns([1, 1])
+                    c1, c2 = st.columns([2, 1])
                     with c1:
-                        st.write(f"**สถานะปัจจุบัน:** `{status}`")
+                        st.write(f"📅 {r['user_time']}")
+                        st.write(f"🚩 สถานะ: **{status}**")
                     
                     with c2:
                         if status == "Pending":
-                            # ส่วน Cooldown 10 นาที (คงเดิมไว้แต่ปรับ UI ปุ่ม)
+                            # ระบบ Cooldown ป้องกันการกดย้ำเกินไป
                             now = datetime.now()
                             last_notify_str = str(r.get('last_notify', ''))
-                            diff_min = 999
+                            can_notify = True
                             if last_notify_str and last_notify_str not in ["", "None", "nan"]:
                                 try:
                                     last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
-                                    diff_min = (now - last_notify_dt).total_seconds() / 60
+                                    if (now - last_notify_dt).total_seconds() < 600: # 10 นาที
+                                        can_notify = False
                                 except: pass
-                            
-                            if diff_min >= 10:
-                                if st.button("🔔 กดตามงานซ่อม", key=f"re_{idx}", type="primary", use_container_width=True):
+
+                            if can_notify:
+                                if st.button("🔔 ตามงาน", key=f"btn_{idx}", type="primary", use_container_width=True):
+                                    # ส่ง LINE หัวข้อ "ตามงาน"
                                     success = send_line_message(
-                                        r.get('wo', '-'), r['sn'], r['model'], 
-                                        "❗ ตามงานซ้ำ (ยังไม่ได้รับการตอบกลับ)", 
+                                        r.get('wo','-'), r['sn'], r['model'], 
+                                        "❗ รบกวนตรวจสอบ งานยังไม่ได้รับการแก้ไข", 
                                         status_type="Re-notify", 
                                         operator=st.session_state.user
                                     )
@@ -489,27 +480,9 @@ elif role == "user":
                                         st.toast("ส่งแจ้งเตือนติดตามงานแล้ว!", icon="🔔")
                                         st.rerun()
                             else:
-                                st.button(f"⏳ รออีก {int(10-diff_min)+1} นาที", key=f"re_{idx}", disabled=True, use_container_width=True)
-                    
-                    if status != "Pending":
-                        with st.expander("📄 ดูบันทึกการซ่อม"):
-                            st.write(f"**🛠 ช่างผู้ซ่อม:** {r.get('tech_id', '-')}")
-                            st.write(f"**📝 รายละเอียด:** {r.get('real_case', '-')}")
-                    st.write("") # เว้นวรรคระหว่างรายการ
+                                st.button("⏳ รอสักครู่", key=f"wait_{idx}", disabled=True, use_container_width=True)
 
-    # --- ส่วนที่ 3: ประวัติ 5 รายการล่าสุด (อยู่ระดับเดียวกับ if/elif menu) ---
-    st.divider()
-    st.subheader("🕒 ประวัติการแจ้งซ่อมล่าสุดของคุณ")
-    df_history = get_df("sheet1")
-    if not df_history.empty and 'user_id' in df_history.columns:
-        user_jobs = df_history[df_history['user_id'].astype(str) == str(st.session_state.user)].tail(5).iloc[::-1]
-        if not user_jobs.empty:
-            for _, r in user_jobs.iterrows():
-                with st.container(border=True):
-                    h1, h2, h3 = st.columns([2, 2, 1])
-                    with h1: st.write(f"**SN:** {r['sn']}\n**WO:** {r.get('wo', '-')}")
-                    with h2: st.write(f"**วันที่:** {r['user_time']}\n**Model:** {r['model']}")
-                    with h3:
-                        stt = r['status']
-                        color = "#FFA500" if stt == "Pending" else "#28A745" if stt == "Completed" else "#DC3545"
-                        st.markdown(f"<div style='background:{color}; color:white; padding:10px; border-radius:8px; text-align:center; font-weight:bold;'>{stt}</div>", unsafe_allow_html=True)
+                    if status != "Pending":
+                        with st.expander("📝 รายละเอียดการซ่อม"):
+                            st.write(f"🛠 **ผลการซ่อม:** {r.get('action', '-')}")
+                            st.write(f"🔍 **สาเหตุ:** {r.get('real_case', '-')}")
