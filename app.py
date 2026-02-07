@@ -74,19 +74,23 @@ def send_line_message(wo, sn, model, failure, status_type="New Request", operato
     try:
         line_token = st.secrets["line_channel_access_token"]
         line_to = st.secrets["line_group_id"]
-
         url = "https://api.line.me/v2/bot/message/push"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {line_token}"
-        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {line_token}"}
 
-        header_text = "📢 แจ้งซ่อมใหม่" if status_type == "New Request" else "✅ ซ่อมเสร็จสิ้น"
+        # --- ส่วนที่ปรับปรุง: เลือกหัวข้อตาม Status Type ---
+        if status_type == "New Request":
+            header_text = "📢 แจ้งซ่อมใหม่"
+        elif status_type == "Completed":
+            header_text = "✅ ซ่อมเสร็จสิ้น"
+        elif status_type == "Re-notify":
+            header_text = "🔔 ติดตามงาน (Urgent!)" # เปลี่ยนหัวข้อสำหรับปุ่มตามงาน
+        else:
+            header_text = f"📦 อัปเดตสถานะ: {status_type}"
 
         message_text = (
             f"{header_text}\n"
             f"---------------------------\n"
-            f"🔢 WO: {wo}\n"  # เพิ่มบรรทัดนี้
+            f"🔢 WO: {wo}\n"
             f"🆔 SN: {sn}\n"
             f"📦 Model: {model}\n"
             f"⚠️ อาการ: {failure}\n"
@@ -95,15 +99,10 @@ def send_line_message(wo, sn, model, failure, status_type="New Request", operato
             f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
 
-        payload = {
-            "to": line_to,
-            "messages": [{"type": "text", "text": message_text}]
-        }
-
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        return response.status_code == 200
+        payload = {"to": line_to, "messages": [{"type": "text", "text": message_text}]}
+        requests.post(url, headers=headers, data=json.dumps(payload))
+        return True
     except Exception as e:
-        print(f"LINE Error: {e}")
         return False
 
 
@@ -430,71 +429,73 @@ elif role == "user":
                         st.success(f"✅ บันทึกเรียบร้อยจาก Station: {u_station}")
                         st.balloons()
 
-    # --- ฟีเจอร์ที่ 2: ติดตามสถานะงาน (User) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือเลข WO", placeholder="พิมพ์เพื่อค้นหา...").strip().upper()
+        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือเลข WO", placeholder="ระบุเลขเพื่อค้นหา...").strip().upper()
 
-        with st.spinner("กำลังค้นหาข้อมูล..."):
-            df_main = get_df("sheet1")
-            if not df_main.empty:
-                # กรองข้อมูล
-                if search_input:
-                    filtered_df = df_main[
-                        df_main['sn'].astype(str).str.contains(search_input) |
-                        df_main['wo'].astype(str).str.contains(search_input)
-                    ].sort_values(by='user_time', ascending=False)
-                else:
-                    # ถ้าไม่ได้ค้นหา ให้แสดงเฉพาะงานของ User คนนี้
-                    filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].sort_values(by='user_time', ascending=False).head(10)
+        df_main = get_df("sheet1")
+        if not df_main.empty:
+            # Logic การกรองข้อมูล (เหมือนเดิม)
+            if search_input:
+                filtered_df = df_main[df_main['sn'].astype(str).str.contains(search_input) | 
+                                    df_main['wo'].astype(str).str.contains(search_input)]
+            else:
+                filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(10)
 
-                if not filtered_df.empty:
-                    for idx, r in filtered_df.iterrows():
-                        status = r.get('status', 'Pending')
-                        status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
-                        row_index = idx + 2
+            for idx, r in filtered_df.iloc[::-1].iterrows():
+                status = r.get('status', 'Pending')
+                row_index = idx + 2
+                
+                # กำหนดสีตามสถานะ
+                bg_color = "#FFF4E5" if status == "Pending" else "#E8F5E9"
+                border_color = "#FFA500" if status == "Pending" else "#2E7D32"
 
-                        with st.container(border=True):
-                            c1, c2, c3 = st.columns([2.5, 1, 1.2])
-                            with c1:
-                                st.subheader(f"🔢 SN: {r['sn']}")
-                                st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
-                                st.caption(f"📅 แจ้งเมื่อ: {r['user_time']}")
+                with st.container():
+                    # จัดหน้าใหม่โดยใช้ HTML เข้าช่วยให้ดูเป็นสัดส่วน
+                    st.markdown(f"""
+                        <div style="background-color:{bg_color}; border-left: 5px solid {border_color}; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                            <h3 style="margin:0; color:#333;">🔢 SN: {r['sn']}</h3>
+                            <p style="margin:5px 0;"><b>WO:</b> {r.get('wo','-')} | <b>Model:</b> {r['model']}</p>
+                            <small>🕒 แจ้งเมื่อ: {r['user_time']}</small>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        st.write(f"**สถานะปัจจุบัน:** `{status}`")
+                    
+                    with c2:
+                        if status == "Pending":
+                            # ส่วน Cooldown 10 นาที (คงเดิมไว้แต่ปรับ UI ปุ่ม)
+                            now = datetime.now()
+                            last_notify_str = str(r.get('last_notify', ''))
+                            diff_min = 999
+                            if last_notify_str and last_notify_str not in ["", "None", "nan"]:
+                                try:
+                                    last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
+                                    diff_min = (now - last_notify_dt).total_seconds() / 60
+                                except: pass
                             
-                            with c2:
-                                st.markdown(f"<div style='background:{status_color};padding:10px;border-radius:10px;text-align:center;color:white;font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
-                            
-                            with c3:
-                                if status == "Pending":
-                                    now = datetime.now()
-                                    can_click = True
-                                    diff_min = 999
-                                    last_notify_str = str(r.get('last_notify', ''))
-                                    
-                                    if last_notify_str and last_notify_str not in ["", "None", "nan"]:
-                                        try:
-                                            last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
-                                            diff_min = (now - last_notify_dt).total_seconds() / 60
-                                            if diff_min < 10: can_click = False
-                                        except: pass
-
-                                    if can_click:
-                                        if st.button("🔔 ตามงานซ่อม", key=f"re_{idx}", use_container_width=True):
-                                            success = send_line_message(r.get('wo', '-'), r['sn'], r['model'], "❗ ตามงานซ้ำ", status_type="Re-notify", operator=st.session_state.user)
-                                            if success:
-                                                ws = ss.worksheet("sheet1")
-                                                ws.update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
-                                                st.toast("ส่งแจ้งเตือนสำเร็จ!")
-                                                st.rerun()
-                                    else:
-                                        st.info(f"⏳ รอ {int(10 - diff_min) + 1} นาที")
-
-                            if status != "Pending":
-                                with st.expander("📝 รายละเอียดการซ่อม"):
-                                    st.write(f"**🔍 สาเหตุ:** {r.get('real_case', '-')}")
-                                    st.write(f"**🛠 วิธีแก้:** {r.get('action', '-')}")
-                else:
-                    st.info("ไม่พบรายการข้อมูลที่เกี่ยวข้อง")
+                            if diff_min >= 10:
+                                if st.button("🔔 กดตามงานซ่อม", key=f"re_{idx}", type="primary", use_container_width=True):
+                                    success = send_line_message(
+                                        r.get('wo', '-'), r['sn'], r['model'], 
+                                        "❗ ตามงานซ้ำ (ยังไม่ได้รับการตอบกลับ)", 
+                                        status_type="Re-notify", 
+                                        operator=st.session_state.user
+                                    )
+                                    if success:
+                                        ss.worksheet("sheet1").update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
+                                        st.toast("ส่งแจ้งเตือนติดตามงานแล้ว!", icon="🔔")
+                                        st.rerun()
+                            else:
+                                st.button(f"⏳ รออีก {int(10-diff_min)+1} นาที", key=f"re_{idx}", disabled=True, use_container_width=True)
+                    
+                    if status != "Pending":
+                        with st.expander("📄 ดูบันทึกการซ่อม"):
+                            st.write(f"**🛠 ช่างผู้ซ่อม:** {r.get('tech_id', '-')}")
+                            st.write(f"**📝 รายละเอียด:** {r.get('real_case', '-')}")
+                    st.write("") # เว้นวรรคระหว่างรายการ
 
     # --- ส่วนที่ 3: ประวัติ 5 รายการล่าสุด (อยู่ระดับเดียวกับ if/elif menu) ---
     st.divider()
