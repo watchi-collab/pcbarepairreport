@@ -417,49 +417,53 @@ elif role == "user":
                         st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ! (Product: {p_name})")
                         st.balloons()
 
-    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (ย่อหน้าให้ตรงกับ if menu ด้านบน) ---
-    elif menu == "🔍 ติดตามสถานะงาน":
+elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-
-        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือชื่อ Model",
-                                     placeholder="พิมพ์หรือสแกนที่นี่...").strip().upper()
+        search_input = st.text_input("🔍 ค้นหาด้วย SN หรือเลข WO", placeholder="พิมพ์ที่นี่...").strip().upper()
 
         if search_input:
-            with st.spinner("กำลังค้นหาข้อมูล..."):
-                df_main = get_df("sheet1")
-                if not df_main.empty:
-                    # แก้ไขชื่อคอลัมน์ 'id' เป็น 'user_id' ให้ตรงกับตอนบันทึก
-                    filtered_df = df_main[
-                        df_main['sn'].astype(str).str.contains(search_input) |
-                        df_main['model'].astype(str).str.contains(search_input)
-                    ].sort_values(by='user_time', ascending=False)
+            df_main = get_df("sheet1")
+            if not df_main.empty:
+                filtered_df = df_main[
+                    df_main['sn'].astype(str).str.contains(search_input) |
+                    df_main['wo'].astype(str).str.contains(search_input)
+                ].sort_values(by='user_time', ascending=False)
 
-                    if not filtered_df.empty:
-                        st.success(f"🔎 พบรายการที่เกี่ยวข้อง {len(filtered_df)} รายการ")
-                        for _, r in filtered_df.iterrows():
-                            status = r['status']
-                            status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+                if not filtered_df.empty:
+                    for _, r in filtered_df.iterrows():
+                        status = r['status']
+                        status_color = "#FFA500" if status == "Pending" else "#28A745" if status == "Completed" else "#DC3545"
+                        
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 1, 1.2]) # เพิ่มคอลัมน์ c3 สำหรับปุ่ม
+                            with c1:
+                                st.subheader(f"🔢 SN: {r['sn']}")
+                                st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
+                                st.caption(f"📅 วันที่แจ้ง: {r['user_time']}")
+                            with c2:
+                                st.markdown(f"<div style='background:{status_color};padding:10px;border-radius:10px;text-align:center;color:white;font-weight:bold;'>{status}</div>", unsafe_allow_html=True)
+                            
+                            with c3:
+                                # --- เพิ่มส่วนปุ่มแจ้งเตือนซ้ำ (Re-notify) ---
+                                if status == "Pending":
+                                    if st.button("🔔 ตามงานซ่อม", key=f"re_{r['sn']}_{r['user_time']}", use_container_width=True):
+                                        success = send_line_message(
+                                            r.get('wo', '-'), 
+                                            r['sn'], 
+                                            r['model'], 
+                                            f"❗ ติดตามงานซ่อม (ยังไม่ได้รับการแก้ไข)", 
+                                            status_type="Re-notify", 
+                                            operator=st.session_state.user
+                                        )
+                                        if success:
+                                            st.toast(f"✅ ส่งแจ้งเตือนสำหรับ SN: {r['sn']} แล้ว", icon="🚀")
+                                        else:
+                                            st.error("❌ ไม่สามารถส่ง LINE ได้")
+                                else:
+                                    st.write("") # เว้นว่างไว้ถ้าซ่อมเสร็จแล้ว
 
-                            with st.container(border=True):
-                                c1, c2 = st.columns([3, 1])
-                                with c1:
-                                    st.subheader(f"🔢 SN: {r['sn']}")
-                                    st.write(f"📦 **Model:** {r['model']} | **WO:** {r.get('wo', '-')}")
-                                    st.caption(f"📅 วันที่แจ้ง: {r['user_time']}")
-                                with c2:
-                                    st.markdown(f"""
-                                        <div style='background-color:{status_color}; padding:10px; border-radius:10px; text-align:center;'>
-                                            <span style='color:white; font-weight:bold;'>{status}</span>
-                                        </div>
-                                    """, unsafe_allow_html=True)
-
-                                if status != "Pending":
-                                    with st.expander("📝 รายละเอียดการวิเคราะห์และแก้ไข"):
-                                        st.markdown(f"**🔍 สาเหตุที่พบ:** {r.get('real_case', '-')}")
-                                        st.markdown(f"**🛠 วิธีการแก้ไข:** {r.get('action_taken', '-')}")
-                                        st.caption(f"✅ ดำเนินการโดย: {r.get('tech_id', '-')} เมื่อ {r.get('tech_time', '-')}")
-                    else:
-                        st.warning(f"⚠️ ไม่พบข้อมูลสำหรับ: '{search_input}'")
+                else:
+                    st.warning("⚠️ ไม่พบข้อมูล")
 
         # ประวัติ 5 รายการล่าสุด (ย่อหน้าให้ตรงกับ if search_input)
         st.divider()
