@@ -165,7 +165,13 @@ if not st.session_state.logged_in:
             df_u = get_df("users")
             match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
             if not match.empty:
-                st.session_state.update({"logged_in": True, "user": u, "role": match.iloc[0]['role']})
+                # แก้ไขจุดนี้: ดึงค่าจากคอลัมน์ 'station' ในตาราง users มาเก็บไว้
+                st.session_state.update({
+                    "logged_in": True, 
+                    "user": u, 
+                    "role": match.iloc[0]['role'],
+                    "station": match.iloc[0].get('station', 'General') # ถ้าไม่มีให้ใส่ General
+                })
                 st.rerun()
             else: st.error("Invalid credentials")
     st.stop()
@@ -367,15 +373,25 @@ elif role == "user":
         index=default_index
     )
 
-    # --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
+# --- ฟีเจอร์ที่ 1: แจ้งซ่อมใหม่ (User) ---
     if menu == "🚀 แจ้งซ่อมใหม่":
         st.title("📱 PCBA Repair Request")
         
+        # ดึงค่า Station ที่ผูกกับ User ไว้ตอนล็อกอิน
+        u_station = st.session_state.get('station', '-')
+
         with st.form("request_form"):
-            wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
-            sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN ที่นี่...").upper()
+            c_top1, c_top2 = st.columns(2)
+            with c_top1:
+                wo = st.text_input("Work Order (WO)", placeholder="ระบุเลข WO...").strip().upper()
+            with c_top2:
+                sn = st.text_input("Serial Number (SN)", placeholder="พิมพ์หรือสแกน SN...").upper()
+            
             model = st.selectbox("Model", get_dropdown_options("model_mat"))
-            station = st.selectbox("Station", get_dropdown_options("station_dropdowns"))
+            
+            # แสดง Station อัตโนมัติ (User ไม่ต้องเลือกเอง)
+            st.info(f"📍 **Station ของคุณ:** {u_station}")
+            
             failure = st.text_area("Symptom / Failure Description")
             u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
 
@@ -384,20 +400,34 @@ elif role == "user":
                     st.error("❌ กรุณาระบุ WO, SN และ Model")
                 else:
                     with st.spinner("กำลังบันทึกข้อมูล..."):
+                        # ดึง Product Name จาก model_mat
                         df_models = get_df("model_mat")
                         match = df_models[df_models['model'].astype(str) == str(model)]
                         p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+
                         img_b64 = save_image_b64(u_file)
 
+                        # บันทึกข้อมูลลง Sheet1 (ใช้ u_station ที่ผูกไว้)
                         new_data = [
-                            st.session_state.user, wo, sn, model, p_name, station, failure, 
-                            "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                            "", "", "", "", "", "", "", img_b64, ""
+                            st.session_state.user,  # A: user_id
+                            wo,                     # B: wo
+                            sn,                     # C: sn
+                            model,                  # D: model
+                            p_name,                 # E: product
+                            u_station,              # F: station (ผูกมาให้แล้ว)
+                            failure,                # G: failure
+                            "Pending",              # H: status
+                            datetime.now().strftime("%Y-%m-%d %H:%M"), # I: user_time
+                            "", "", "", "", "",     # J-N: repair info
+                            "",                     # O: tech_id
+                            "",                     # P: tech_time
+                            img_b64,                # Q: img_user
+                            ""                      # R: img_tech
                         ]
                         
                         ss.worksheet("sheet1").append_row(new_data)
                         send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        st.success(f"✅ แจ้งซ่อม WO: {wo} สำเร็จ!")
+                        st.success(f"✅ บันทึกเรียบร้อยจาก Station: {u_station}")
                         st.balloons()
 
     # --- ฟีเจอร์ที่ 2: ติดตามสถานะงาน (User) ---
