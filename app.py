@@ -108,6 +108,7 @@ def send_line_message(wo, sn, model, failure, status_type="New Request", operato
 if not st.session_state.logged_in:
     tab1, tab2 = st.tabs(["🔍 ติดตามสถานะงาน (Public)", "🔐 เข้าสู่ระบบ (Staff Only)"])
 
+    # --- หน้าติดตามสถานะงาน (Public) - ปรับปรุงใหม่ ---
     with tab1:
         st.title("🔎 PCBA Repair Tracking")
         c_search1, c_search2 = st.columns(2)
@@ -127,21 +128,55 @@ if not st.session_state.logged_in:
                     query &= (df_pub['model'].astype(str).str.contains(model_search))
 
                 result = df_pub[query].sort_values(by='user_time', ascending=False)
+                
                 if not result.empty:
+                    st.write(f"พบข้อมูลทั้งหมด {len(result)} รายการ")
                     for _, r in result.iterrows():
                         status = r.get('status', 'Pending')
-                        card_bg = "#FFF9F0" if status == "Pending" else "#F0FFF4"
-                        border_c = "#FFA500" if status == "Pending" else "#28A745"
+                        
+                        # --- กำหนดรายละเอียดสถานะให้ชัดเจน ---
+                        if status == "Pending":
+                            status_label = "🟠 **รอช่างตรวจสอบ (Pending)**"
+                            waiting_info = "⏳ ขั้นตอน: งานรอช่างเข้าคิวตรวจสอบ"
+                            card_bg, border_c = "#FFF9F0", "#FFA500"
+                        elif status == "Completed":
+                            status_label = "✅ **ซ่อมเสร็จสิ้น (Completed)**"
+                            waiting_info = "📦 ขั้นตอน: ซ่อมเสร็จแล้ว พร้อมส่งมอบ"
+                            card_bg, border_c = "#F0FFF4", "#28A745"
+                        else:
+                            status_label = f"🔍 **{status}**"
+                            waiting_info = ""
+                            card_bg, border_c = "#F8F9FA", "#6C757D"
+
                         with st.container(border=True):
+                            # ส่วนการแสดงผลหลัก (Public View)
                             st.markdown(f"""
                                 <div style="background-color:{card_bg}; border-left: 5px solid {border_c}; padding: 12px; border-radius: 5px;">
-                                    <h4 style="margin:0; color: #000000;">🔢 SN: <b>{r['sn']}</b></h4>
-                                    <p style="margin:5px 0; color: #000000; font-size: 0.9rem;">📦 <b>Model:</b> {r['model']} | <b>WO:</b> {r.get('wo','-')}</p>
+                                    <h4 style="margin:0; color:#1a1a1a;">🔢 SN: {r['sn']}</h4>
+                                    <p style="margin:4px 0; font-size:0.9rem; color:#444;">📦 Model: {r['model']} | WO: {r.get('wo','-')}</p>
+                                    <div style="font-weight:bold; color:#d35400; font-size:0.85rem;">{waiting_info}</div>
                                 </div>
                             """, unsafe_allow_html=True)
-                else:
-                    st.warning("❌ ไม่พบข้อมูลที่ตรงกับเงื่อนไข")
+                            
+                            col_p1, col_p2 = st.columns(2)
+                            with col_p1:
+                                st.write(f"📍 **สถานะ:** {status_label}")
+                                st.write(f"🕒 **เวลาแจ้งซ่อม:** {r['user_time']}")
+                            
+                            with col_p2:
+                                if status == "Completed":
+                                    # สำหรับบุคคลทั่วไป แสดงเวลาที่เสร็จเพื่อให้ทราบความคืบหน้า
+                                    st.write(f"👷 **ช่างผู้ดูแล:** {r.get('tech_id', '-')}")
+                                    st.write(f"🏁 **วันที่ซ่อมเสร็จ:** {r.get('tech_time', '-')}")
+                                elif status == "Pending":
+                                    st.info("ℹ️ พนักงานผู้แจ้งสามารถกด 'ตามงาน' ได้ในหน้าล็อคอิน")
 
+                            # แสดงรายละเอียดวิธีซ่อมสั้นๆ ให้ทราบ (Public)
+                            if status == "Completed":
+                                with st.expander("📝 สรุปการแก้ไข"):
+                                    st.write(f"**วิธีแก้:** {r.get('action', '-')}")
+                else:
+                    st.warning("❌ ไม่พบข้อมูล")
     with tab2:
         st.subheader("พนักงาน/ช่างซ่อม เข้าสู่ระบบ")
         with st.form("login_form"):
