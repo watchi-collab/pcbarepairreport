@@ -221,12 +221,12 @@ if role == "admin":
     tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
     df_main = get_df("sheet1")
 
-    with tabs[0]:  # 📊 DASHBOARD (UPGRADED 2026)
+    with tabs[0]:  # 📊 DASHBOARD (FIXED SYNTAX)
         st.subheader("📊 PCBA Performance Analysis")
         
         # --- 1. ประกาศค่าเริ่มต้น (ป้องกัน NameError) ---
         avg_lt = 0.0
-        df_filtered = pd.DataFrame() # สร้าง DF เปล่าไว้ก่อน
+        df_filtered = pd.DataFrame() 
         
         if not df_main.empty:
             # เตรียมข้อมูลเวลา
@@ -252,27 +252,25 @@ if role == "admin":
             # --- 3. คำนวณ Lead Time เฉพาะงานที่เสร็จ ---
             df_lead = df_filtered[df_filtered['status'] == 'Completed'].copy()
             if not df_lead.empty:
-                # คำนวณส่วนต่างเป็นชั่วโมง
                 df_lead['duration'] = (df_lead['tech_time'] - df_lead['user_time']).dt.total_seconds() / 3600
                 avg_lt = df_lead['duration'].mean()
 
-            # --- 4. บัตรตัวเลขหลัก (KPI Cards) พร้อมปรับสีตัวหนังสือให้ชัด ---
+            # --- 4. บัตรตัวเลขหลัก (KPI Cards) ---
             total = len(df_filtered)
             comp = len(df_lead)
             pend = len(df_filtered[df_filtered['status'] == 'Pending'])
             success_rate = (comp / total * 100) if total > 0 else 0
 
-            # บังคับสีตัวหนังสือด้วย CSS (แก้ปัญหามองไม่เห็นใน Dark/Light mode)
+            # บังคับสีตัวหนังสือและสไตล์ Card
             st.markdown("""
                 <style>
                 [data-testid="stMetricValue"] { color: #004a99 !important; font-weight: bold; }
-                [data-testid="stMetricLabel"] { color: #333333 !important; font-size: 1.1rem; }
+                [data-testid="stMetricLabel"] { color: #333333 !important; }
                 div[data-testid="metric-container"] {
                     background-color: #ffffff; 
                     border: 1px solid #d1d5db;
                     padding: 15px;
                     border-radius: 10px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
                 }
                 </style>
             """, unsafe_allow_html=True)
@@ -294,8 +292,33 @@ if role == "admin":
                 if not df_cl.empty:
                     fig_pie = px.pie(df_cl, names='classification', hole=0.5, 
                                    color_discrete_sequence=px.colors.qualitative.Pastel)
-                    st.plotly_chart(fig_pie, use_container_width
+                    st.plotly_chart(fig_pie, use_container_width=True) # ปิดวงเล็บให้เรียบร้อยแล้ว
+                else:
+                    st.info("ไม่มีข้อมูล Classification")
 
+            with col_chart2:
+                st.markdown("#### 📈 Repair Trend (Daily)")
+                trend_df = df_filtered.copy()
+                trend_df['date'] = trend_df['user_time'].dt.date
+                trend_data = trend_df.groupby(['date', 'status']).size().reset_index(name='count')
+                if not trend_data.empty:
+                    fig_line = px.line(trend_data, x='date', y='count', color='status',
+                                     markers=True, line_shape="spline",
+                                     color_discrete_map={'Completed': '#28A745', 'Pending': '#FFA500'})
+                    st.plotly_chart(fig_line, use_container_width=True) # ปิดวงเล็บให้เรียบร้อยแล้ว
+
+            # --- 6. Lead Time Analysis ---
+            st.divider()
+            st.markdown("#### ⏱️ Lead Time Analysis by Model (Top 10)")
+            if not df_lead.empty:
+                model_lt = df_lead.groupby('model')['duration'].mean().reset_index().sort_values('duration', ascending=False).head(10)
+                fig_lt = px.bar(model_lt, x='model', y='duration', color='duration', color_continuous_scale='Reds')
+                fig_lt.add_hline(y=avg_lt, line_dash="dot", annotation_text=f"Avg: {avg_lt:.1f}h", line_color="orange")
+                st.plotly_chart(fig_lt, use_container_width=True)
+            else:
+                st.info("ยังไม่มีข้อมูลสำหรับคำนวณ Lead Time")
+        else:
+            st.warning("⚠️ ไม่พบข้อมูลในระบบ")
     with tabs[1]:  # Master Data
         sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
         df_edit = get_df(sub)
@@ -340,7 +363,7 @@ if role == "admin":
                 st.success("บันทึกข้อมูลเรียบร้อยแล้ว!")
                 st.rerun()
 
-    with tabs[3]:  # Dropdowns
+    with tabs[2]:  # Dropdowns
         drop = st.selectbox("เลือก Dropdown",
                             ["station_dropdowns", "defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
         df_drop = get_df(drop)
@@ -351,7 +374,7 @@ if role == "admin":
             ws.update([edited_drop.columns.values.tolist()] + edited_drop.values.tolist());
             st.success("Updated!")
 
-    with tabs[2]:
+    with tabs[3]:
         st.dataframe(df_main, use_container_width=True)
 
     with tabs[4]:  # QA Gallery
