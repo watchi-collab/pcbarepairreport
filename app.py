@@ -319,6 +319,7 @@ if role == "admin":
                 st.info("ยังไม่มีข้อมูลสำหรับคำนวณ Lead Time")
         else:
             st.warning("⚠️ ไม่พบข้อมูลในระบบ")
+            
     with tabs[1]:  # Master Data
         sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
         df_edit = get_df(sub)
