@@ -379,39 +379,66 @@ if role == "admin":
         st.dataframe(df_main, use_container_width=True)
 
     with tabs[4]:  # 📸 QA GALLERY (ENHANCED)
-        st.subheader("🔍 QA Inspection & Repair Detailed Logs")
-        
-        # ค้นหาและตัวกรอง
-        c_search1, c_search2 = st.columns([3, 1])
-        search_sn = c_search1.text_input("🔍 Search by Serial Number", placeholder="กรอกเลข SN...")
-        filter_status = c_search2.selectbox("Filter Status", ["All", "Completed", "Pending", "Scrapped"])
-        
-        # กรองข้อมูลจาก DataFrame หลัก
-        df_qa_view = df_main.copy()
-        if search_sn:
-            df_qa_view = df_qa_view[df_qa_view['sn'].str.contains(search_sn, case=False, na=False)]
-        if filter_status != "All":
-            df_qa_view = df_qa_view[df_qa_view['status'] == filter_status]
+    st.subheader("🔍 QA Inspection & Repair Detailed Logs")
+    
+    # 1. ค้นหาและตัวกรอง (อยู่ด้านบนสุด)
+    c_search1, c_search2 = st.columns([3, 1])
+    search_sn = c_search1.text_input("🔍 Search by Serial Number", placeholder="กรอกเลข SN...", key="qa_search")
+    filter_status = c_search2.selectbox("Filter Status", ["All", "Completed", "Pending", "Scrapped"], key="qa_filter")
 
-        if not df_qa_view.empty:
-            # เรียงจากใหม่ไปเก่า
-            for index, row in df_qa_view.sort_index(ascending=False).iterrows():
-                # กำหนดสี Badge ตามสถานะ
-                status_color = "green" if row['status'] == 'Completed' else "orange" if row['status'] == 'Pending' else "red"
+    # 2. กรองข้อมูลจาก DataFrame หลัก
+    df_qa_view = df_main.copy()
+    if search_sn:
+        df_qa_view = df_qa_view[df_qa_view['sn'].astype(str).str.contains(search_sn, case=False, na=False)]
+    if filter_status != "All":
+        df_qa_view = df_qa_view[df_qa_view['status'] == filter_status]
+
+    # 3. แสดงรายการผลลัพธ์
+    if not df_qa_view.empty:
+        # เรียงจากใหม่ไปเก่า
+        for index, row in df_qa_view.sort_index(ascending=False).iterrows():
+            status_color = "green" if row['status'] == 'Completed' else "orange" if row['status'] == 'Pending' else "red"
+            
+            with st.container(border=True):
+                # ส่วนหัวรายการ
+                h1, h2 = st.columns([3, 1])
+                h1.markdown(f"### 📦 SN: {row['sn']}")
+                h2.markdown(f"<p style='text-align:right; color:{status_color}; font-weight:bold; margin-top:15px;'>● {row['status']}</p>", unsafe_allow_html=True)
                 
-                with st.container(border=True):
-                    # ส่วนหัวรายการ
-                    h1, h2 = st.columns([3, 1])
-                    h1.markdown(f"### 📦 SN: {row['sn']}")
-                    h2.markdown(f"<p style='text-align:right; color:{status_color}; font-weight:bold;'>● {row['status']}</p>", unsafe_allow_html=True)
-                    
-                    # ข้อมูลเชิงเทคนิค (3 คอลัมน์)
-                    t1, t2, t3 = st.columns(3)
-                    t1.write(f"**📟 Model:** {row['model']}")
-                    t2.write(f"**📍 Station:** {row['station']}")
-                    t3.write(f"**🛠️ Tech Name:** {row.get('tech_name', 'Not assigned')}")
+                # ข้อมูลเชิงเทคนิค
+                t1, t2, t3 = st.columns(3)
+                t1.write(f"**📟 Model:** {row['model']}")
+                t2.write(f"**📍 Station:** {row['station']}")
+                # ตรวจสอบชื่อหัวคอลัมน์ tech_id หรือ tech_name ให้ตรงกับ Sheet
+                t3.write(f"**🛠️ Tech ID:** {row.get('tech_id', '-')}")
 
-                    st.markdown("---")
+                # --- ส่วนที่ซ่อนรูปภาพ (อยู่ใน Loop) ---
+                with st.expander("🖼️ ดูรูปภาพเปรียบเทียบ Before/After"):
+                    img_col1, img_col2 = st.columns(2)
+                    
+                    with img_col1:
+                        st.markdown("📤 **Before (User)**")
+                        u_img = row.get('img_user', '')
+                        if u_img and u_img not in ["", "None", "nan"]:
+                            st.image(f"data:image/jpeg;base64,{u_img}", use_container_width=True)
+                        else:
+                            st.caption("ไม่มีรูปภาพจากผู้แจ้ง")
+                            
+                    with img_col2:
+                        st.markdown("📥 **After (Technician)**")
+                        t_img = row.get('img_tech', '')
+                        if t_img and t_img not in ["", "None", "nan"]:
+                            st.image(f"data:image/jpeg;base64,{t_img}", use_container_width=True)
+                        else:
+                            st.caption("ยังไม่มีรูปภาพหลังซ่อม")
+
+                # รายละเอียดเพิ่มเติมด้านล่างรูป
+                st.markdown("---")
+                st.write(f"**📝 Failure Detail:** {row.get('failure', '-')}")
+                if row['status'] == 'Completed':
+                    st.success(f"**✅ Repair Action:** {row.get('action', '-')}")
+    else:
+        st.info("ไม่พบข้อมูลที่ตรงกับเงื่อนไขการค้นหา")
                     
 # ส่วนการเปรียบเทียบรูปภาพ (Before - After)
                     img_col1, img_col2 = st.columns(2)
