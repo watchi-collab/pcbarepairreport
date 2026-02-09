@@ -42,6 +42,12 @@ def init_connections():
 
 ss, status_conn = init_connections()
 
+def get_category_options():
+    df = get_df("category_dropdowns")
+    if not df.empty:
+        return df.iloc[:, 0].astype(str).tolist()
+    return ["PCBA", "Machine"] # Default ถ้าหา Sheet ไม่เจอ
+
 def get_df(sheet_name):
     try:
         ws = ss.worksheet(sheet_name)
@@ -221,26 +227,21 @@ if role == "admin":
     tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
     df_main = get_df("sheet1")
 
-    with tabs[0]:  # 📊 DASHBOARD (FIXED SYNTAX)
-        st.subheader("📊 PCBA Performance Analysis")
-        
-        # --- 1. ประกาศค่าเริ่มต้น (ป้องกัน NameError) ---
-        avg_lt = 0.0
-        df_filtered = pd.DataFrame() 
-        
+    with tabs[0]:  # 📊 DASHBOARD
+        st.subheader("📊 Performance Analysis")
         if not df_main.empty:
-            # เตรียมข้อมูลเวลา
             df_main['user_time'] = pd.to_datetime(df_main['user_time'], errors='coerce')
-            df_main['tech_time'] = pd.to_datetime(df_main['tech_time'], errors='coerce')
             
-            # --- 2. ตัวกรองข้อมูล (Filters) ---
             with st.container(border=True):
-                c1, c2, c3 = st.columns([2, 2, 1])
+                c0, c1, c2, c3 = st.columns([1, 1.5, 1.5, 1])
+                # --- [เพิ่ม] ตัวกรอง Category ใน Dashboard ---
+                view_cat = c0.selectbox("🗂️ ประเภท", ["All"] + get_category_options())
                 start_d = c1.date_input("📅 วันที่เริ่มต้น", datetime.now().replace(day=1))
                 end_d = c2.date_input("📅 วันที่สิ้นสุด", datetime.now())
                 
                 mask = (df_main['user_time'].dt.date >= start_d) & (df_main['user_time'].dt.date <= end_d)
-                df_filtered = df_main.loc[mask].copy()
+                if view_cat != "All":
+                    mask &= (df_main['category'] == view_cat)
                 
                 # ปุ่ม Export Excel
                 buffer = io.BytesIO()
@@ -378,15 +379,14 @@ if role == "admin":
     with tabs[3]:
         st.dataframe(df_main, use_container_width=True)
 
-    with tabs[4]:  # 📸 QA GALLERY (ENHANCED)
-        st.subheader("🔍 QA Inspection & Repair Detailed Logs")
-        
-        # 1. ส่วนการค้นหาและตัวกรอง
-        c_search1, c_search2 = st.columns([3, 1])
-        search_sn = c_search1.text_input("🔍 Search by Serial Number", placeholder="กรอกเลข SN...", key="qa_search_sn")
-        filter_status = c_search2.selectbox("Filter Status", ["All", "Completed", "Pending", "Scrapped"], key="qa_filter_status")
+    with tabs[4]:  # 📸 QA GALLERY
+        st.subheader("🔍 QA Inspection")
+        c_search1, c_search2, c_search3 = st.columns([2, 1, 1])
+        search_sn = c_search1.text_input("🔍 Search SN", key="qa_search_sn")
+        # --- [เพิ่ม] ตัวกรอง Category ใน QA ---
+        filter_cat = c_search2.selectbox("🗂️ Category", ["All"] + get_category_options())
+        filter_status = c_search3.selectbox("Status", ["All", "Completed", "Pending"], key="qa_status")
 
-        # 2. กรองข้อมูลจาก DataFrame
         df_qa_view = df_main.copy()
         if search_sn:
             df_qa_view = df_qa_view[df_qa_view['sn'].astype(str).str.contains(search_sn, case=False, na=False)]
@@ -488,24 +488,27 @@ elif role == "technician":
                     if job.get('img_user'): 
                         c_u2.image(f"data:image/jpeg;base64,{job['img_user']}", caption="Before")
 
-                with st.form("repair_form"):
-                    rc = st.text_input("Real Case", value=job.get('real_case', ''))
-                    dt = st.selectbox("Defect Type", get_dropdown_options("defect_dropdowns"))
-                    ac = st.selectbox("Action Taken", get_dropdown_options("action_dropdowns"))
-                    cl = st.selectbox("Classification", get_dropdown_options("classification_dropdowns"))
-                    stt = st.radio("Result", ["Completed", "Scrapped"], horizontal=True)
-                    imgs = st.file_uploader("Upload Repair Photos", accept_multiple_files=True)
+               with st.form("update_form"):
+                st.write(f"🛠️ กำลังซ่อม SN: {sel_sn}")
+                p_name = st.text_input("Product Name", value=old_val_f)
+                stt = st.selectbox("Status", ["Completed", "In Progress", "Wait Part"])
+                rc = st.text_input("Real Case / Root Cause")
+                dt = st.selectbox("Defect Type", get_dropdown_options("defect_type"))
+                ac = st.selectbox("Action", get_dropdown_options("action"))
+                cl = st.selectbox("Classification", get_dropdown_options("classification"))
+                imgs = st.file_uploader("Upload Repair Photo", accept_multiple_files=True)
 
                     if st.form_submit_button("💾 Save Update"):
                         ws = ss.worksheet("sheet1")
-                        ws.update(f'E{sel_row}', [[p_name]])
-                        ws.update(f'H{sel_row}', [[stt]])
-                        ws.update(f'J{sel_row}:N{sel_row}', [[rc, dt, ac, cl, "-"]])
-                        ws.update(f'O{sel_row}', [[st.session_state.user]])
-                        ws.update(f'P{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
-                        
-                        if imgs: 
-                            ws.update(f'R{sel_row}', [[save_multiple_images_b64(imgs)]])
+                        ws.update(f'F{sel_row}', [[p_name]])    # F: product
+                        ws.update(f'I{sel_row}', [[stt]])       # I: status
+                        ws.update(f'K{sel_row}:O{sel_row}', [[rc, dt, ac, cl, "-"]]) # K-O: details
+                        ws.update(f'P{sel_row}', [[st.session_state.user]]) # P: tech_id
+                        ws.update(f'Q{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]]) # Q: tech_time
+            
+                    if imgs:
+                        img_tech_b64 = save_multiple_images_b64(imgs)
+                        ws.update(f'S{sel_row}', [[img_tech_b64]]) # S: img_tech
 
                         # --- แก้ไขจุดนี้: ส่งค่า wo เพิ่มเข้าไปเป็นตัวแรก ---
                         send_line_message(
@@ -524,57 +527,84 @@ elif role == "technician":
 
 
 elif role == "user":
-    # 1. จัดการ URL Query Parameters เพื่อแยกหน้า
-    query_params = st.query_params
-    page_now = query_params.get("page", "request")  # ค่าเริ่มต้นคือหน้าแจ้งซ่อม
+    menu = st.sidebar.radio("📍 เมนูการใช้งาน", ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"])
 
-    # ตั้งค่า Index ของ Radio ตาม URL
-    default_index = 0 if page_now == "request" else 1
-
-    menu = st.sidebar.radio(
-        "📍 เมนูการใช้งาน",
-        ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"],
-        index=default_index
-    )
-
-    # --- ฟีเจอร์ที่ 1: หน้าแจ้งซ่อมใหม่ (/?page=request) ---
     if menu == "🚀 แจ้งซ่อมใหม่":
-        st.title("📱 PCBA Repair Request")
-        u_station = st.session_state.get('station', '-')
-
-        with st.form("request_form"):
+        st.title("📱 Repair Request Form")
+        
+        with st.form("request_form", clear_on_submit=True):
+            # 1. เลือกประเภทงาน (จะถูกบันทึกลงคอลัมน์ B)
+            repair_category = st.radio("🛠️ เลือกประเภทงานซ่อม", ["PCBA", "Machine"], horizontal=True)
+            
             col1, col2 = st.columns(2)
             with col1:
-                wo = st.text_input("Work Order (WO)", placeholder="เลข WO...").strip().upper()
+                wo = st.text_input("Work Order / Asset No.", placeholder="เลข WO หรือ Asset...").strip().upper()
             with col2:
-                sn = st.text_input("Serial Number (SN)", placeholder="สแกน SN...").upper()
+                sn = st.text_input("Serial Number (SN)", placeholder="สแกน SN...").strip().upper()
             
-            model = st.selectbox("Model", get_dropdown_options("model_mat"))
+            # 2. ปรับเปลี่ยนช่องกรอก Model ตามประเภทที่เลือก
+            if repair_category == "PCBA":
+                model_options = get_dropdown_options("model_mat")
+                model = st.selectbox("Model PCBA", model_options)
+            else:
+                model = st.text_input("Machine Name / Model", placeholder="ระบุชื่อเครื่องจักร/รุ่น")
+            
             st.info(f"📍 **แจ้งจากสถานี:** {u_station}")
             
             failure = st.text_area("Symptom / Failure Description (อาการเสีย)")
-            u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)")
+            u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)", type=['png', 'jpg', 'jpeg'])
 
-            if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
-                if model == "--กรุณาเลือก--" or not sn or not wo:
-                    st.error("❌ กรุณาระบุ WO, SN และ Model ให้ครบถ้วน")
+            # ปุ่มส่งข้อมูล
+            submit_btn = st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม")
+
+            if submit_btn:
+                # ตรวจสอบเงื่อนไขความครบถ้วน
+                is_pcba_invalid = (repair_category == "PCBA" and (model == "--กรุณาเลือก--" or not model))
+                if not sn or not wo or is_pcba_invalid:
+                    st.error("❌ กรุณากรอกข้อมูลสำคัญ (WO, SN, Model) ให้ครบถ้วน")
                 else:
-                    with st.spinner("กำลังบันทึก..."):
-                        df_models = get_df("model_mat")
-                        match = df_models[df_models['model'].astype(str) == str(model)]
-                        p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+                    with st.spinner("กำลังบันทึกข้อมูล..."):
+                        # ค้นหา Product Name เฉพาะกรณี PCBA
+                        p_name = "-"
+                        if repair_category == "PCBA":
+                            df_models = get_df("model_mat")
+                            match = df_models[df_models['model'].astype(str) == str(model)]
+                            p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+                        
                         img_b64 = save_image_b64(u_file)
 
+                        # 3. จัดเรียงข้อมูลให้ตรงกับ Column A-S (19 คอลัมน์)
+                        # A=user, B=category, C=wo, D=sn, E=model, F=product, G=station...
                         new_data = [
-                            st.session_state.user, wo, sn, model, p_name, u_station, failure, 
-                            "Pending", datetime.now().strftime("%Y-%m-%d %H:%M"), 
-                            "", "", "", "", "", "", "", img_b64, ""
+                            st.session_state.user,      # A: user_id
+                            repair_category,            # B: category (เพิ่มใหม่)
+                            wo,                         # C: wo
+                            sn,                         # D: sn
+                            model,                      # E: model
+                            p_name,                     # F: product
+                            u_station,                  # G: station
+                            failure,                    # H: failure
+                            "Pending",                  # I: status
+                            datetime.now().strftime("%Y-%m-%d %H:%M"), # J: user_time
+                            "", "", "", "", "",         # K-O: เว้นว่าง (Tech fields)
+                            "",                         # P: tech_id
+                            "",                         # Q: tech_time
+                            img_b64,                    # R: img_user
+                            ""                          # S: img_tech
                         ]
                         
+                        # บันทึกลง Google Sheets
                         ss.worksheet("sheet1").append_row(new_data)
-                        # ส่ง LINE หัวข้อ "แจ้งซ่อมใหม่"
-                        send_line_message(wo, sn, model, failure, status_type="New Request", operator=st.session_state.user)
-                        st.success(f"✅ บันทึก WO: {wo} สำเร็จ!")
+                        
+                        # ส่ง LINE Notification
+                        send_line_message(
+                            wo, sn, f"[{repair_category}] {model}", 
+                            failure, 
+                            status_type="New Request", 
+                            operator=st.session_state.user
+                        )
+                        
+                        st.success(f"✅ บันทึกรายการ {repair_category} (WO: {wo}) สำเร็จ!")
                         st.balloons()
 
     # --- ฟีเจอร์ที่ 2: หน้าติดตามสถานะและตามงาน (ปรับปรุงใหม่) ---
