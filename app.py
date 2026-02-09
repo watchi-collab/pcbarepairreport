@@ -413,22 +413,25 @@ if role == "admin":
 
                     st.markdown("---")
                     
-                    # ส่วนการเปรียยบเทียบรูปภาพ (Before - After)
+# ส่วนการเปรียบเทียบรูปภาพ (Before - After)
                     img_col1, img_col2 = st.columns(2)
                     with img_col1:
-                        st.info("🖼️ **Before Repair** (จากหน้าแจ้งซ่อม)")
-                        if row['image_user']:
-                            st.image(row['image_user'], use_container_width=True)
+                        st.markdown("🖼️ **Before (User)**")
+                        # ดึงข้อมูลจากคอลัมน์ img_user (คอลัมน์ Q)
+                        u_img = row.get('img_user', '')
+                        if u_img and u_img not in ["", "None", "nan"]:
+                            st.image(f"data:image/jpeg;base64,{u_img}", use_container_width=True)
                         else:
-                            st.caption("No image provided by user")
+                            st.info("ไม่พบรูปภาพประกอบจากผู้แจ้ง")
                     
                     with img_col2:
-                        st.success("🛠️ **After Repair** (จากหน้างานซ่อม)")
-                        # ตรวจสอบชื่อคอลัมน์รูปที่ช่างอัปโหลด (สมมติว่าชื่อ image_tech)
-                        if 'image_tech' in row and row['image_tech']:
-                            st.image(row['image_tech'], use_container_width=True)
+                        st.markdown("🛠️ **After (Technician)**")
+                        # ดึงข้อมูลจากคอลัมน์ img_tech (คอลัมน์ R)
+                        t_img = row.get('img_tech', '')
+                        if t_img and t_img not in ["", "None", "nan"]:
+                            st.image(f"data:image/jpeg;base64,{t_img}", use_container_width=True)
                         else:
-                            st.warning("ยังไม่มีรูปถ่ายหลังซ่อมเสร็จ")
+                            st.warning("ยังไม่ได้อัปโหลดรูปภาพหลังซ่อม")
 
                     # รายละเอียดการซ่อมและ Timeline
                     with st.expander("📝 ดูประวัติการแก้ไขและเวลา (Repair Log)"):
