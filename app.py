@@ -276,9 +276,9 @@ if role == "admin":
             """, unsafe_allow_html=True)
 
             k1, k2, k3, k4 = st.columns(4)
-            with k1: st.metric("Total Jobs", f"{total} แผง")
-            with k2: st.metric("Completed", f"{comp} แผง", delta=f"{success_rate:.1f}% Rate")
-            with k3: st.metric("Pending", f"{pend} แผง", delta=f"{pend} งานค้าง", delta_color="inverse")
+            with k1: st.metric("Total Jobs", f"{total} Pcs.")
+            with k2: st.metric("Completed", f"{comp} Pcs.", delta=f"{success_rate:.1f}% Rate")
+            with k3: st.metric("Pending", f"{pend} Pcs.", delta=f"{pend} งานค้าง", delta_color="inverse")
             with k4: st.metric("Avg. Lead Time", f"{avg_lt:.1f} Hrs")
 
             st.divider()
@@ -378,21 +378,87 @@ if role == "admin":
     with tabs[3]:
         st.dataframe(df_main, use_container_width=True)
 
-    with tabs[4]:  # QA Gallery
-        st.subheader("📸 QA Inspection")
-        search_sn = st.text_input("🔍 Search SN", key="admin_search").upper()
-        gal_data = df_main[df_main['sn'] == search_sn] if search_sn else df_main.tail(10).iloc[::-1]
-        for _, r in gal_data.iterrows():
-            with st.expander(f"📦 SN: {r['sn']} | Status: {r.get('status', '-')}"):
-                c_inf1, c_inf2 = st.columns(2)
-                c_inf1.write(f"**Model:** {r['model']} | **Station:** {r['station']}")
-                c_inf2.write(f"**Real Case:** {r.get('real_case', '-')}")
-                st.divider()
-                col_i1, col_i2 = st.columns(2)
-                if r.get('img_user'): col_i1.image(f"data:image/jpeg;base64,{r['img_user']}", caption="Before (User)")
-                if r.get('img_tech'):
-                    t_imgs = str(r['img_tech']).split(",")
-                    col_i2.image(f"data:image/jpeg;base64,{t_imgs[0]}", caption="After (Tech)")
+    with tabs[4]:  # 📸 QA GALLERY (ENHANCED)
+        st.subheader("🔍 QA Inspection & Repair Detailed Logs")
+        
+        # ค้นหาและตัวกรอง
+        c_search1, c_search2 = st.columns([3, 1])
+        search_sn = c_search1.text_input("🔍 Search by Serial Number", placeholder="กรอกเลข SN...")
+        filter_status = c_search2.selectbox("Filter Status", ["All", "Completed", "Pending", "Scrapped"])
+        
+        # กรองข้อมูลจาก DataFrame หลัก
+        df_qa_view = df_main.copy()
+        if search_sn:
+            df_qa_view = df_qa_view[df_qa_view['sn'].str.contains(search_sn, case=False, na=False)]
+        if filter_status != "All":
+            df_qa_view = df_qa_view[df_qa_view['status'] == filter_status]
+
+        if not df_qa_view.empty:
+            # เรียงจากใหม่ไปเก่า
+            for index, row in df_qa_view.sort_index(ascending=False).iterrows():
+                # กำหนดสี Badge ตามสถานะ
+                status_color = "green" if row['status'] == 'Completed' else "orange" if row['status'] == 'Pending' else "red"
+                
+                with st.container(border=True):
+                    # ส่วนหัวรายการ
+                    h1, h2 = st.columns([3, 1])
+                    h1.markdown(f"### 📦 SN: {row['sn']}")
+                    h2.markdown(f"<p style='text-align:right; color:{status_color}; font-weight:bold;'>● {row['status']}</p>", unsafe_allow_html=True)
+                    
+                    # ข้อมูลเชิงเทคนิค (3 คอลัมน์)
+                    t1, t2, t3 = st.columns(3)
+                    t1.write(f"**📟 Model:** {row['model']}")
+                    t2.write(f"**📍 Station:** {row['station']}")
+                    t3.write(f"**🛠️ Tech Name:** {row.get('tech_name', 'Not assigned')}")
+
+                    st.markdown("---")
+                    
+                    # ส่วนการเปรียยบเทียบรูปภาพ (Before - After)
+                    img_col1, img_col2 = st.columns(2)
+                    with img_col1:
+                        st.info("🖼️ **Before Repair** (จากหน้าแจ้งซ่อม)")
+                        if row['image_user']:
+                            st.image(row['image_user'], use_container_width=True)
+                        else:
+                            st.caption("No image provided by user")
+                    
+                    with img_col2:
+                        st.success("🛠️ **After Repair** (จากหน้างานซ่อม)")
+                        # ตรวจสอบชื่อคอลัมน์รูปที่ช่างอัปโหลด (สมมติว่าชื่อ image_tech)
+                        if 'image_tech' in row and row['image_tech']:
+                            st.image(row['image_tech'], use_container_width=True)
+                        else:
+                            st.warning("ยังไม่มีรูปถ่ายหลังซ่อมเสร็จ")
+
+                    # รายละเอียดการซ่อมและ Timeline
+                    with st.expander("📝 ดูประวัติการแก้ไขและเวลา (Repair Log)"):
+                        log1, log2 = st.columns(2)
+                        with log1:
+                            st.write(f"**Defect Type:** {row.get('defect_type', '-')}")
+                            st.write(f"**Symptom:** {row.get('symptom', '-')}")
+                            st.write(f"**Root Cause:** {row.get('reason', '-')}")
+                            st.write(f"**Action:** {row.get('fix_action', '-')}")
+                        with log2:
+                            st.write(f"**🕒 Time Reported:** {row['user_time']}")
+                            if row['status'] == 'Completed':
+                                st.write(f"**✅ Time Finished:** {row['tech_time']}")
+                                # คำนวณเวลาที่ใช้ไป
+                                diff = pd.to_datetime(row['tech_time']) - pd.to_datetime(row['user_time'])
+                                st.write(f"**⏱️ Total Duration:** {diff}")
+
+                    # ส่วนการตัดสินใจของ QA (Decision)
+                    if row['status'] == 'Completed':
+                        st.markdown("---")
+                        q_col1, q_col2, q_col3 = st.columns([1, 2, 1])
+                        qa_comment = q_col2.text_input("QA Comment", key=f"cmt_{row['sn']}", placeholder="ระบุหมายเหตุการตรวจ...")
+                        if q_col1.button("✅ Approve", key=f"app_{row['sn']}", use_container_width=True):
+                            st.toast(f"Approved SN: {row['sn']}")
+                            # ตรงนี้สามารถเพิ่ม Code เพื่อ Update สถานะลง Database เป็น 'Closed' ได้
+                        if q_col3.button("❌ Reject", key=f"rej_{row['sn']}", use_container_width=True):
+                            st.error(f"Rejected SN: {row['sn']} - แจ้งช่างแก้ไขใหม่")
+        else:
+            st.empty()
+            st.info("ไม่พบข้อมูลที่ตรงกับการค้นหา")
 
 # ---------------- [SECTION: TECHNICIAN] ----------------
 elif role == "technician":
