@@ -217,8 +217,14 @@ with st.sidebar:
     st.divider()
     st.write("● System Online" if status_conn else "● Offline")
 
-# --- 4. MAIN LOGIC ---
-role = st.session_state.role.lower()
+# --- 4. MAIN APP LOGIC ---
+role = st.session_state.role
+with st.sidebar:
+    st.title(f"👤 {st.session_state.user}")
+    st.caption(f"Role: {role.upper()} | Station: {st.session_state.station}")
+    if st.button("🚪 Sign Out"):
+        st.session_state.logged_in = False
+        st.rerun()
 
 
 
@@ -458,7 +464,7 @@ if role == "admin":
                             # เพิ่ม logic การแจ้งกลับช่างตรงนี้ได้
         else:
             st.info("ไม่พบรายการที่ตรงกับเงื่อนไขการค้นหา")
-# ---------------- [SECTION: TECHNICIAN] ----------------
+# ---------------- [SECTION: TECHNICIAN - ปรับปรุงใหม่] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
     target_sn = st.text_input("🔍 Scan Serial Number (SN)").upper()
@@ -466,66 +472,58 @@ elif role == "technician":
     if target_sn:
         df_main = get_df("sheet1")
         if not df_main.empty:
+            # ค้นหา SN ที่ตรงกัน
             jobs = df_main[df_main['sn'].astype(str) == target_sn].copy()
+            
             if not jobs.empty:
+                # สร้างตัวเลือกรายการกรณี SN ซ้ำ (เช่น เคยซ่อมไปแล้ว)
                 options = [(i, f"รายการที่ {i+1} | {r['status']} | {r['model']}") for i, r in jobs.iterrows()]
                 sel = st.radio("เลือกรายการที่ต้องการอัปเดต:", options, format_func=lambda x: x[1])
                 idx_original, job = sel[0], jobs.loc[sel[0]]
-                sel_row = idx_original + 2  # แปลง Index เป็นลำดับแถวใน Google Sheets (Header + 1-based)
-
-                p_name = str(job.get('product', '')).strip()
-                if p_name in ["", "-", "None", "nan"]:
-                    df_models = get_df("model_mat")
-                    match = df_models[df_models['model'].astype(str) == str(job['model'])]
-                    p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+                sel_row = idx_original + 2  # แปลง Index เป็นแถวใน Google Sheets
 
                 with st.container(border=True):
                     c_u1, c_u2 = st.columns([2, 1])
                     with c_u1:
-                        st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']} | **🔢 WO:** {job.get('wo', '-')}")
-                        st.success(f"**🏷️ Product Name:** {p_name}")
+                        st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']}")
                         st.error(f"⚠️ **Symptom:** {job.get('failure', 'N/A')}")
                     if job.get('img_user'): 
                         c_u2.image(f"data:image/jpeg;base64,{job['img_user']}", caption="Before")
 
-               with st.form("update_form"):
-                st.write(f"🛠️ กำลังซ่อม SN: {sel_sn}")
-                p_name = st.text_input("Product Name", value=old_val_f)
-                stt = st.selectbox("Status", ["Completed", "In Progress", "Wait Part"])
-                rc = st.text_input("Real Case / Root Cause")
-                dt = st.selectbox("Defect Type", get_dropdown_options("defect_type"))
-                ac = st.selectbox("Action", get_dropdown_options("action"))
-                cl = st.selectbox("Classification", get_dropdown_options("classification"))
-                imgs = st.file_uploader("Upload Repair Photo", accept_multiple_files=True)
+                # --- ฟอร์มบันทึกผลการซ่อม ---
+                with st.form("update_form"):
+                    st.write("### 📝 บันทึกผลการซ่อม")
+                    stt = st.selectbox("Status", ["Completed", "In Progress", "Wait Part"])
+                    rc = st.text_input("Real Case / Root Cause")
+                    dt = st.selectbox("Defect Type", get_dropdown_options("defect_dropdowns"))
+                    ac = st.selectbox("Action", get_dropdown_options("action_dropdowns"))
+                    cl = st.selectbox("Classification", get_dropdown_options("classification_dropdowns"))
+                    imgs = st.file_uploader("Upload Repair Photo", accept_multiple_files=True)
 
                     if st.form_submit_button("💾 Save Update"):
                         ws = ss.worksheet("sheet1")
-                        ws.update(f'F{sel_row}', [[p_name]])    # F: product
-                        ws.update(f'I{sel_row}', [[stt]])       # I: status
-                        ws.update(f'K{sel_row}:O{sel_row}', [[rc, dt, ac, cl, "-"]]) # K-O: details
-                        ws.update(f'P{sel_row}', [[st.session_state.user]]) # P: tech_id
-                        ws.update(f'Q{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]]) # Q: tech_time
-            
-                    if imgs:
-                        img_tech_b64 = save_multiple_images_b64(imgs)
-                        ws.update(f'S{sel_row}', [[img_tech_b64]]) # S: img_tech
+                        # อัปเดตข้อมูลลง Sheet (Columns ตามลำดับ I, K, L, M, N, P, Q, S)
+                        ws.update(f'I{sel_row}', [[stt]])
+                        ws.update(f'K{sel_row}:N{sel_row}', [[rc, dt, ac, cl]])
+                        ws.update(f'P{sel_row}', [[st.session_state.user]])
+                        ws.update(f'Q{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
+                        
+                        if imgs:
+                            img_tech_b64 = save_multiple_images_b64(imgs)
+                            ws.update(f'S{sel_row}', [[img_tech_b64]])
 
-                        # --- แก้ไขจุดนี้: ส่งค่า wo เพิ่มเข้าไปเป็นตัวแรก ---
+                        # ส่ง LINE แจ้งเตือน
                         send_line_message(
-                            job.get('wo', '-'), 
-                            job['sn'], 
-                            job['model'], 
-                            f"ผลการซ่อม: {stt} (สาเหตุ: {rc})", 
-                            status_type="Completed", 
+                            job.get('wo', '-'), job['sn'], job['model'], 
+                            f"ผลการซ่อม: {stt} ({rc})", 
+                            status_type="Completed" if stt=="Completed" else "Updated", 
                             operator=st.session_state.user
                         )
-                        
-                        st.success(f"✅ อัปเดตงานซ่อม SN: {job['sn']} เรียบร้อย!")
+                        st.success(f"✅ อัปเดต SN: {job['sn']} เรียบร้อย!")
                         st.rerun()
             else:
-                st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
-
-
+                st.warning("❌ ไม่พบข้อมูล SN นี้ในระบบ")
+                
 elif role == "user":
     menu = st.sidebar.radio("📍 เมนูการใช้งาน", ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"])
 
