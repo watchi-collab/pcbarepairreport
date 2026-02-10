@@ -57,13 +57,23 @@ def get_dropdown_options(sheet_name):
     if not df.empty: options.extend(df.iloc[:, 0].astype(str).tolist())
     return options
 
-def save_image_b64(file):
-    if not file: return ""
-    img = Image.open(file)
-    img.thumbnail((400, 400))
-    buf = io.BytesIO()
-    img.convert('RGB').save(buf, format="JPEG", quality=40)
-    return base64.b64encode(buf.getvalue()).decode()
+def save_multiple_images_b64(files):
+    """ฟังก์ชันสำหรับแปลงไฟล์รูปภาพหลายไฟล์ให้เป็น Base64 String ชุดเดียว"""
+    if not files: return ""
+    encoded_images = []
+    for file in files:
+        try:
+            img = Image.open(file)
+            # ปรับขนาดและลดคุณภาพเพื่อไม่ให้ข้อมูลใน Google Sheets เต็มเร็วเกินไป
+            img.thumbnail((400, 400)) 
+            buf = io.BytesIO()
+            img.convert('RGB').save(buf, format="JPEG", quality=40)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            encoded_images.append(b64)
+        except Exception as e:
+            continue
+    # รวมรูปภาพเข้าด้วยกันโดยใช้เครื่องหมาย | คั่น (เพื่อให้ตอนดึงมาโชว์แยกรูปได้)
+    return "|".join(encoded_images)
 
 def send_line_message(wo, sn, model, failure, status_type="New Request", operator="Unknown"):
     try:
