@@ -121,19 +121,29 @@ if not st.session_state.logged_in:
 
     with tab2:
         with st.form("login_form"):
-            u = st.text_input("Username")
-            p = st.text_input("Password", type="password")
+            u = st.text_input("Username").strip()
+            p = st.text_input("Password", type="password").strip()
+            
             if st.form_submit_button("Login"):
                 df_u = get_df("users")
-                match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
-                if not match.empty:
-                    st.session_state.update({
-                        "logged_in": True, "user": u, 
-                        "role": match.iloc[0]['role'], "station": match.iloc[0].get('station', 'General')
-                    })
-                    st.rerun()
-                else: st.error("ข้อมูลไม่ถูกต้อง")
-    st.stop()
+                if not df_u.empty:
+                    # แปลงข้อมูลใน Google Sheets ให้เป็น String และลบช่องว่างทิ้ง
+                    df_u['username'] = df_u['username'].astype(str).str.strip()
+                    df_u['password'] = df_u['password'].astype(str).str.strip()
+                    
+                    # ตรวจสอบคู่ Username & Password
+                    match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
+                    
+                    if not match.empty:
+                        st.session_state.update({
+                            "logged_in": True, 
+                            "user": u, 
+                            "role": match.iloc[0]['role'], 
+                            "station": match.iloc[0].get('station', 'General')
+                        })
+                        st.rerun()
+                    else: 
+                        st.error("❌ ข้อมูลไม่ถูกต้อง (โปรดเช็ค Username/Password)")
 
 # --- 5. SIDEBAR (AFTER LOGIN) ---
 with st.sidebar:
@@ -240,51 +250,53 @@ if role == "admin":
                 ws.update([edited.columns.values.tolist()] + edited.fillna("").values.tolist())
                 st.success("บันทึกข้อมูลเรียบร้อย!")
 
-    with tabs[4]:  # 📸 QA GALLERY & APPROVAL
-        st.subheader("🔍 QA Inspection & Decision")
-        search_sn = st.text_input("🔍 Search SN", key="qa_search_sn").strip().upper()
+    with tabs[4]:  # 📸 VIEW GALLERY (ตรวจสอบงานซ่อม)
+        st.subheader("🔍 Repair Inspection Gallery")
         
-        df_qa = df_main.copy()
+        # ค้นหา SN หรือเลือกสถานะเพื่อดูรูป
+        c_search1, c_search2 = st.columns([2, 2])
+        search_sn = c_search1.text_input("🔍 ค้นหาด้วย SN", key="gallery_search_sn").strip().upper()
+        filter_status = c_search2.selectbox("กรองตามสถานะ", ["All", "Completed", "Pending", "Wait Part"])
+
+        df_view = df_main.copy()
         if search_sn:
-            df_qa = df_qa[df_qa['sn'].astype(str).str.contains(search_sn)]
-        
-        # แสดงเฉพาะรายการที่รอ QA (Status = Completed แต่ยังไม่ Approved)
-        # สมมติว่ามี Column ชื่อ 'qa_status' ใน Sheet
-        for index, row in df_qa.sort_index(ascending=False).head(10).iterrows():
-            with st.container(border=True):
-                h1, h2 = st.columns([3, 1])
-                h1.subheader(f"📦 SN: {row['sn']} (Model: {row['model']})")
-                h2.write(f"Status: **{row['status']}**")
-                
-                exp = st.expander("👁️ View Details & Images")
-                with exp:
-                    c_img1, c_img2 = st.columns(2)
-                    with c_img1:
-                        st.caption("Before (User)")
-                        if row.get('img_user'): 
-                            st.image(f"data:image/jpeg;base64,{row['img_user']}")
-                    with c_img2:
-                        st.caption("After (Tech)")
-                        if row.get('img_tech'): 
-                            st.image(f"data:image/jpeg;base64,{row['img_tech']}")
-                
-                # QA Decision Logic
-                if row['status'] == "Completed":
-                    q1, q2, q3 = st.columns([1, 2, 1])
-                    comment = q2.text_input("QA Comment", key=f"qa_cmt_{index}")
+            df_view = df_view[df_view['sn'].astype(str).str.contains(search_sn)]
+        if filter_status != "All":
+            df_view = df_view[df_view['status'] == filter_status]
+
+        if not df_view.empty:
+            # แสดง 10 รายการล่าสุด
+            for index, row in df_view.tail(10).iloc[::-1].iterrows():
+                with st.container(border=True):
+                    h1, h2 = st.columns([3, 1])
+                    h1.markdown(f"### 📦 SN: {row['sn']}")
+                    h2.markdown(f"**สถานะ:** `{row['status']}`")
                     
-                    if q1.button("✅ Approve", key=f"btn_app_{index}"):
-                        row_idx = index + 2
-                        ss.worksheet("sheet1").update(f'I{row_idx}', [['QA Approved']]) # เปลี่ยน Status ใน Col I
-                        ss.worksheet("sheet1").update(f'S{row_idx}', [[comment]]) # บันทึก Comment ใน Col S
-                        st.success("Approved!")
-                        st.rerun()
-                        
-                    if q3.button("❌ Reject", key=f"btn_rej_{index}"):
-                        row_idx = index + 2
-                        ss.worksheet("sheet1").update(f'I{row_idx}', [['Rejected']])
-                        st.error("Rejected!")
-                        st.rerun()
+                    st.write(f"**📟 Model:** {row['model']} | **📍 Station:** {row['station']}")
+                    
+                    exp = st.expander("🖼️ คลิกเพื่อดูรูปภาพและรายละเอียดการซ่อม")
+                    with exp:
+                        img_col1, img_col2 = st.columns(2)
+                        with img_col1:
+                            st.markdown("**📤 Before (User)**")
+                            if row.get('img_user') and str(row['img_user']) not in ["", "None", "nan"]:
+                                st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
+                            else:
+                                st.caption("ไม่มีรูปภาพแจ้งซ่อม")
+                                
+                        with img_col2:
+                            st.markdown("**📥 After (Technician)**")
+                            if row.get('img_tech') and str(row['img_tech']) not in ["", "None", "nan"]:
+                                st.image(f"data:image/jpeg;base64,{row['img_tech']}", use_container_width=True)
+                            else:
+                                st.caption("ช่างยังไม่ได้อัปโหลดรูป")
+
+                        st.divider()
+                        st.write(f"🛠️ **Action:** {row.get('fix_action', row.get('action', '-'))}")
+                        st.write(f"🔍 **Root Cause:** {row.get('real_case', '-')}")
+                        st.write(f"👷 **Tech:** {row.get('tech_id', '-')} | **Time:** {row.get('tech_time', '-')}")
+        else:
+            st.info("ไม่พบข้อมูลที่ค้นหา")
 # ---------------- [SECTION: TECHNICIAN] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
@@ -293,19 +305,18 @@ elif role == "technician":
     if target_sn:
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # ค้นหา SN ที่ตรงกัน (ทำสำเนาเพื่อป้องกัน SettingWithCopyWarning)
+            # ค้นหา SN ที่ตรงกัน
             jobs = df_main[df_main['sn'].astype(str) == target_sn].copy()
             
             if not jobs.empty:
-                # สร้างตัวเลือกรายการ: แสดงลำดับ, สถานะ และวันที่แจ้งล่าสุด
+                # ตัวเลือกรายการ (เรียงจากใหม่ไปเก่า)
                 options = [(i, f"Job #{i+1} | Status: {r['status']} | Model: {r['model']} ({r['user_time']})") for i, r in jobs.iterrows()]
-                # เรียงลำดับเอาอันล่าสุดขึ้นก่อนเพื่อให้เลือกง่าย
                 options.reverse() 
                 
                 sel = st.radio("เลือกรายการที่ต้องการดำเนินการ:", options, format_func=lambda x: x[1])
-                idx_original, job_desc = sel[0], sel[1]
+                idx_original = sel[0]
                 job = jobs.loc[idx_original]
-                sel_row = idx_original + 2  # แปลง Index (0-based) เป็นแถว Excel (Header + 1)
+                sel_row = idx_original + 2  # Row ใน Google Sheets
 
                 with st.container(border=True):
                     c_u1, c_u2 = st.columns([2, 1])
@@ -315,12 +326,12 @@ elif role == "technician":
                         st.error(f"⚠️ **Symptom:** {job.get('failure', 'N/A')}")
                     
                     with c_u2:
-                        # ตรวจสอบว่ามีคอลัมน์รูปภาพ User หรือไม่ (สมมติอยู่ Column R หรือเรียกตามชื่อ)
+                        # แสดงรูปจากผู้แจ้ง (คอลัมน์ R)
                         u_img = job.get('img_user', '')
                         if u_img and str(u_img) not in ["", "None", "nan"]:
                             st.image(f"data:image/jpeg;base64,{u_img}", caption="รูปภาพจากผู้แจ้ง", use_container_width=True)
                         else:
-                            st.caption("🚫 ไม่มีรูปประกอบ")
+                            st.caption("🚫 ไม่มีรูปประกอบจากผู้แจ้ง")
 
                 # --- ฟอร์มบันทึกผลการซ่อม ---
                 with st.form("update_form"):
@@ -343,21 +354,18 @@ elif role == "technician":
                         # 1. อัปเดตสถานะ (Col I)
                         ws.update(f'I{sel_row}', [[stt]])
                         
-                        # 2. อัปเดตรายละเอียดการซ่อม (K: Root Cause, L: Defect Type, M: Action, N: Classification)
-                        # ตรวจสอบลำดับ Column ใน Sheet อีกครั้งว่า K-N ตรงกันหรือไม่
+                        # 2. อัปเดตรายละเอียด (K: Real Case, L: Defect Type, M: Action, N: Classification)
                         ws.update(f'K{sel_row}:N{sel_row}', [[rc, dt, ac, cl]])
                         
-                        # 3. อัปเดตข้อมูลผู้ซ่อมและเวลา (P: Tech ID, Q: Tech Time)
+                        # 3. อัปเดตข้อมูลผู้ซ่อม (P: Tech ID, Q: Tech Time)
                         ws.update(f'P{sel_row}:Q{sel_row}', [[st.session_state.user, datetime.now().strftime("%Y-%m-%d %H:%M")]])
                         
-                        # 4. จัดการรูปภาพ (ถ้ามีการอัปโหลดใหม่)
+                        # 4. จัดการรูปภาพช่าง (ลงที่ Col S ตามโครงสร้างใหม่)
                         if imgs:
-                            img_tech_b64 = save_multiple_images_b64(imgs)
-                            # ตรวจสอบว่ารูป Tech เก็บที่ Col S หรือไม่ (ถ้าใช่ใช้ S)
-                            ws.update(f'R{sel_row}', [[img_tech_b64]])
+                            img_tech_b64 = save_multiple_images_b64(imgs) # ฟังก์ชันรวมรูปเป็น b64
+                            ws.update(f'S{sel_row}', [[img_tech_b64]])
 
                         # 5. แจ้งเตือนผ่าน LINE
-                        line_msg = f"🛠️ **Update: {stt}**\nSN: {job['sn']}\nCause: {rc}\nBy: {st.session_state.user}"
                         send_line_message(
                             job.get('wo', '-'), job['sn'], job['model'], 
                             f"ผลซ่อม: {stt} | {rc}", 
@@ -370,6 +378,7 @@ elif role == "technician":
                         st.rerun()
             else:
                 st.warning("❌ ไม่พบข้อมูล SN นี้ในระบบ")
+                
 # ---------------- [SECTION: USER / OPERATOR] ----------------
 elif role == "user":
     menu = st.sidebar.radio("📍 เมนูการใช้งาน", ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"])
@@ -419,23 +428,25 @@ elif role == "user":
 
                         # จัดเรียงข้อมูลลง A-S (19 คอลัมน์)
                         # หมายเหตุ: คอลัมน์ S (ลำดับที่ 19) ในที่นี้ใช้เก็บ last_notify สำหรับระบบติดตาม
-                        new_data = [
+                        new_row = [
                             st.session_state.user,      # A: user_id
-                            repair_category,            # B: category
+                            cat,                        # B: category
                             wo,                         # C: wo
                             sn,                         # D: sn
                             model,                      # E: model
                             p_name,                     # F: product
                             u_station,                  # G: station
-                            failure,                    # H: failure
+                            fail,                       # H: failure
                             "Pending",                  # I: status
                             datetime.now().strftime("%Y-%m-%d %H:%M"), # J: user_time
-                            "", "", "", "", "",         # K-O: Tech fields (ว่าง)
+                            "", "", "", "", "",         # K-O: เว้นว่าง (สำหรับช่าง)
                             "",                         # P: tech_id
                             "",                         # Q: tech_time
-                            img_b64,                    # R: img_user
-                            ""                          # S: last_notify_time (ใช้สำหรับ Cooldown)
+                            img_b64,                    # R: img_user (รูปจากผู้แจ้ง)
+                            "",                         # S: img_tech (รูปจากช่าง)
+                            ""                          # T: last_notify (ลำดับที่ 20)
                         ]
+                        ss.worksheet("sheet1").append_row(new_row)
                         
                         ss.worksheet("sheet1").append_row(new_data)
                         
@@ -449,14 +460,14 @@ elif role == "user":
                         st.success(f"✅ บันทึกรายการ {repair_category} สำเร็จ!")
                         st.balloons()
 
-    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ ---
+    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (เวอร์ชันตัด QA ออก) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-        search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)").strip().upper()
+        search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)", placeholder="พิมพ์เลข SN หรือ WO เพื่อค้นหา...").strip().upper()
 
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # กรองข้อมูล
+            # 1. การกรองข้อมูล: ถ้ามีการพิมพ์ค้นหาให้หาจากทั้งหมด ถ้าไม่พิมพ์ให้โชว์แค่ของ User คนนั้น 10 รายการล่าสุด
             if search_input:
                 filtered_df = df_main[df_main['sn'].astype(str).str.contains(search_input) | 
                                     df_main['wo'].astype(str).str.contains(search_input)]
@@ -464,25 +475,30 @@ elif role == "user":
                 filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(10)
 
             if filtered_df.empty:
-                st.info("ไม่พบรายการแจ้งซ่อมของคุณ")
+                st.info("💡 ไม่พบรายการแจ้งซ่อมของคุณในขณะนี้")
             else:
+                # แสดงรายการจากใหม่ไปเก่า (Reverse)
                 for idx, r in filtered_df.iloc[::-1].iterrows():
                     status = r.get('status', 'Pending')
                     row_index = idx + 2
                     
-                    # Logic การแสดงผล Card
+                    # กำหนดสีและคำอธิบายตามสถานะ
                     if status == "Pending":
                         status_desc, waiting_for, color = "🟠 Pending", "⏳ รอช่างรับงาน", "#FFA500"
                     elif status == "Completed":
-                        status_desc, waiting_for, color = "✅ Completed", "📦 งานเสร็จแล้ว", "#28A745"
+                        status_desc, waiting_for, color = "✅ Completed", "📦 ซ่อมเสร็จสิ้น", "#28A745"
+                    elif status == "In Progress":
+                        status_desc, waiting_for, color = "🔵 In Progress", "🛠️ กำลังดำเนินการซ่อม", "#007BFF"
                     else:
                         status_desc, waiting_for, color = f"🔍 {status}", "", "#6C757D"
 
                     with st.container(border=True):
+                        # ส่วนหัว Card แสดงข้อมูลหลัก
                         st.markdown(f"""
-                            <div style="border-left: 5px solid {color}; padding-left: 15px;">
+                            <div style="border-left: 5px solid {color}; padding-left: 15px; margin-bottom: 10px;">
                                 <h4 style="margin:0;">SN: {r['sn']} | {status_desc}</h4>
-                                <small>Model: {r['model']} | {waiting_for}</small>
+                                <small style="color: #666;">Model: {r['model']} | WO: {r.get('wo','-')}</small><br>
+                                <strong style="color: {color}; font-size: 0.85rem;">{waiting_for}</strong>
                             </div>
                         """, unsafe_allow_html=True)
 
@@ -493,13 +509,13 @@ elif role == "user":
                                 st.write(f"👷 **ช่างผู้ดูแล:** {r['tech_id']}")
 
                         with c2:
-                            if status == "Pending":
-                                # ระบบ Cooldown 10 นาที
+                            # แสดงปุ่ม "ตามงาน" เฉพาะงานที่ยังไม่เสร็จ
+                            if status in ["Pending", "Wait Part"]:
                                 now = datetime.now()
-                                # เช็ค Last Notify จากคอลัมน์ S (Index 18)
                                 last_notify_str = str(r.get('last_notify', ''))
                                 can_notify = True
                                 
+                                # ตรวจสอบ Cooldown 10 นาที (600 วินาที)
                                 if last_notify_str and last_notify_str not in ["", "None", "nan"]:
                                     try:
                                         last_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
@@ -508,22 +524,7 @@ elif role == "user":
                                     except: pass
 
                                 if can_notify:
-                                    if st.button("🔔 ตามงานด่วน", key=f"btn_{idx}", type="primary"):
+                                    if st.button("🔔 ตามงานด่วน", key=f"btn_{idx}", type="primary", use_container_width=True):
                                         success = send_line_message(
                                             r.get('wo','-'), r['sn'], r['model'], 
-                                            "❗ งานล่าช้า รบกวนช่างตรวจสอบครับ/ค่ะ", 
-                                            status_type="Re-notify", 
-                                            operator=st.session_state.user
-                                        )
-                                        if success:
-                                            # อัปเดตเวลาแจ้งเตือนล่าสุดลงช่อง S (ลำดับที่ 19)
-                                            ss.worksheet("sheet1").update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
-                                            st.toast("ส่งแจ้งเตือนแล้ว!")
-                                            st.rerun()
-                                else:
-                                    st.button("⏳ รอ 10 นาที", key=f"wait_{idx}", disabled=True)
-                        
-                        if status != "Pending":
-                            with st.expander("📝 ดูรายละเอียดการซ่อม"):
-                                st.write(f"**สาเหตุ:** {r.get('real_case', '-')}")
-                                st.write(f"**วิธีแก้:** {r.get('action', '-')}")
+                                            "❗ งานยังไม่ได้รับการแก้ไข รบกวนช่างตรวจสอบครับ/ค่ะ",
