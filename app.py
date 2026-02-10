@@ -250,16 +250,51 @@ if role == "admin":
             st.warning("⚠️ ไม่พบข้อมูลในระบบ")
 
     with tabs[1]:  # Master Data
-        sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
-        df_edit = get_df(sub)
-        if not df_edit.empty:
-            edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
-            if st.button(f"💾 Save {sub}"):
+    sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
+    df_edit = get_df(sub)
+    
+    if not df_edit.empty:
+        st.write(f"### 📋 ตารางข้อมูล {sub}")
+        st.caption("💡 วิธีใช้งาน: ดับเบิลคลิกเพื่อแก้ไขช่องที่ต้องการ หรือเลือกแถวแล้วกด Delete ที่คีย์บอร์ดเพื่อลบเบื้องต้น")
+        
+        # 1. แสดงตารางสำหรับพิมพ์แก้ไขข้อมูล
+        # ใช้ num_rows="dynamic" เพื่อให้เพิ่มแถวใหม่ได้โดยการพิมพ์ที่บรรทัดล่างสุด
+        edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True, key=f"editor_{sub}")
+        
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            # 2. ปุ่มบันทึกข้อมูลที่แก้ไขหรือเพิ่มใหม่
+            if st.button(f"💾 Save {sub}", use_container_width=True):
                 ws = ss.worksheet(sub)
                 ws.clear()
-                ws.update([edited.columns.values.tolist()] + edited.fillna("").values.tolist())
+                # เติมค่าว่างแทน NaN เพื่อให้ Google Sheets รับข้อมูลได้
+                ws.update([edited.columns.values.tolist()] + edited.fillna("").astype(str).values.tolist())
                 st.success("บันทึกข้อมูลเรียบร้อย!")
-
+                st.rerun()
+        
+        st.divider()
+        
+        # 3. ฟังก์ชันการลบข้อมูล (Delete) แบบระบุแถว
+        st.subheader("🗑️ ลบข้อมูล")
+        # ใช้คอลัมน์แรก (username หรือ model) มาเป็นตัวเลือกในการลบ
+        target_col = edited.columns[0] 
+        list_to_delete = edited[target_col].tolist()
+        
+        selected_del = st.multiselect(f"เลือก {target_col} ที่ต้องการลบ:", list_to_delete)
+        
+        if st.button(f"❌ ยืนยันการลบจาก {sub}", type="secondary"):
+            if selected_del:
+                # กรองข้อมูลเอาเฉพาะแถวที่ไม่ได้ถูกเลือกให้ลบ
+                final_df = edited[~edited[target_col].isin(selected_del)]
+                ws = ss.worksheet(sub)
+                ws.clear()
+                ws.update([final_df.columns.values.tolist()] + final_df.fillna("").astype(str).values.tolist())
+                st.warning(f"ลบข้อมูลสำเร็จ!")
+                st.rerun()
+            else:
+                st.error("กรุณาเลือกข้อมูลที่ต้องการลบก่อนครับ")
+                
     with tabs[4]:  # 📸 VIEW GALLERY (ตรวจสอบงานซ่อม)
         st.subheader("🔍 Repair Inspection Gallery")
         
