@@ -382,6 +382,9 @@ elif role == "technician":
 # ---------------- [SECTION: USER / OPERATOR] ----------------
 elif role == "user":
     menu = st.sidebar.radio("📍 เมนูการใช้งาน", ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"])
+    
+    # แก้ไข NameError: ดึงค่าสถานะของผู้ใช้งานปัจจุบัน
+    u_station = st.session_state.get('station', 'General Station')
 
     if menu == "🚀 แจ้งซ่อมใหม่":
         st.title("📱 Repair Request Form")
@@ -403,7 +406,7 @@ elif role == "user":
             else:
                 model = st.text_input("Machine Name / Model", placeholder="ระบุชื่อเครื่องจักร/รุ่น")
             
-            st.info(f"📍 **แจ้งจากสถานี:** {u_station}") # u_station ดึงมาจาก session_state
+            st.info(f"📍 **แจ้งจากสถานี:** {u_station}")
             
             failure = st.text_area("Symptom / Failure Description (อาการเสีย)")
             u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)", type=['png', 'jpg', 'jpeg'])
@@ -421,35 +424,36 @@ elif role == "user":
                         p_name = "-"
                         if repair_category == "PCBA":
                             df_models = get_df("model_mat")
-                            match = df_models[df_models['model'].astype(str) == str(model)]
-                            p_name = match.iloc[0]['product_name'] if not match.empty else "-"
+                            if not df_models.empty:
+                                match = df_models[df_models['model'].astype(str) == str(model)]
+                                p_name = match.iloc[0]['product_name'] if not match.empty else "-"
                         
                         img_b64 = save_image_b64(u_file)
 
-                        # จัดเรียงข้อมูลลง A-S (19 คอลัมน์)
-                        # หมายเหตุ: คอลัมน์ S (ลำดับที่ 19) ในที่นี้ใช้เก็บ last_notify สำหรับระบบติดตาม
+                        # จัดเรียงข้อมูลลง A-T (20 คอลัมน์ ตามโครงสร้างล่าสุดของคุณ)
                         new_row = [
                             st.session_state.user,      # A: user_id
-                            cat,                        # B: category
+                            repair_category,            # B: category
                             wo,                         # C: wo
                             sn,                         # D: sn
                             model,                      # E: model
                             p_name,                     # F: product
                             u_station,                  # G: station
-                            fail,                       # H: failure
+                            failure,                    # H: failure
                             "Pending",                  # I: status
                             datetime.now().strftime("%Y-%m-%d %H:%M"), # J: user_time
                             "", "", "", "", "",         # K-O: เว้นว่าง (สำหรับช่าง)
                             "",                         # P: tech_id
                             "",                         # Q: tech_time
-                            img_b64,                    # R: img_user (รูปจากผู้แจ้ง)
-                            "",                         # S: img_tech (รูปจากช่าง)
+                            img_b64,                    # R: img_user
+                            "",                         # S: img_tech
                             ""                          # T: last_notify (ลำดับที่ 20)
                         ]
+                        
+                        # บันทึกข้อมูลเพียงครั้งเดียว
                         ss.worksheet("sheet1").append_row(new_row)
                         
-                        ss.worksheet("sheet1").append_row(new_data)
-                        
+                        # ส่งแจ้งเตือนผ่าน LINE
                         send_line_message(
                             wo, sn, f"[{repair_category}] {model}", 
                             failure, 
@@ -459,7 +463,7 @@ elif role == "user":
                         
                         st.success(f"✅ บันทึกรายการ {repair_category} สำเร็จ!")
                         st.balloons()
-
+                        # st.rerun() # เปิดใช้งานหากต้องการ Refresh หน้าจอทันที
     # --- ฟีเจอร์ที่ 2: ติดตามสถานะ (เวอร์ชันตัด QA ออก) ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
