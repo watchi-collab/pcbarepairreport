@@ -14,11 +14,6 @@ import json
 # --- 1. SETTINGS & STYLE ---
 st.set_page_config(page_title="PCBA System 2026 PRO", layout="wide")
 
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'user' not in st.session_state: st.session_state.user = ""
-if 'role' not in st.session_state: st.session_state.role = ""
-if 'station' not in st.session_state: st.session_state.station = ""
-
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -37,16 +32,10 @@ def init_connections():
         client = gspread.authorize(creds)
         spreadsheet = client.open_by_key("1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc")
         return spreadsheet, True
-    except:
+    except Exception as e:
         return None, False
 
 ss, status_conn = init_connections()
-
-def get_category_options():
-    df = get_df("category_dropdowns")
-    if not df.empty:
-        return df.iloc[:, 0].astype(str).tolist()
-    return ["PCBA", "Machine"] # Default ถ้าหา Sheet ไม่เจอ
 
 def get_df(sheet_name):
     try:
@@ -57,6 +46,10 @@ def get_df(sheet_name):
         return df.fillna("")
     except:
         return pd.DataFrame()
+
+def get_category_options():
+    df = get_df("category_dropdowns")
+    return df.iloc[:, 0].astype(str).tolist() if not df.empty else ["PCBA", "Machine"]
 
 def get_dropdown_options(sheet_name):
     df = get_df(sheet_name)
@@ -72,458 +65,312 @@ def save_image_b64(file):
     img.convert('RGB').save(buf, format="JPEG", quality=40)
     return base64.b64encode(buf.getvalue()).decode()
 
-def save_multiple_images_b64(files):
-    if not files: return ""
-    return ",".join(filter(None, [save_image_b64(f) for f in files]))
-
 def send_line_message(wo, sn, model, failure, status_type="New Request", operator="Unknown"):
     try:
         line_token = st.secrets["line_channel_access_token"]
         line_to = st.secrets["line_group_id"]
         url = "https://api.line.me/v2/bot/message/push"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {line_token}"}
-
-        if status_type == "New Request":
-            header_text = "📢 แจ้งซ่อมใหม่"
-        elif status_type == "Completed":
-            header_text = "✅ ซ่อมเสร็จสิ้น"
-        elif status_type == "Re-notify":
-            header_text = "🔔 ติดตามงาน (Urgent!)"
-        else:
-            header_text = f"📦 อัปเดตสถานะ: {status_type}"
+        
+        header_map = {
+            "New Request": "📢 แจ้งซ่อมใหม่",
+            "Completed": "✅ ซ่อมเสร็จสิ้น",
+            "Re-notify": "🔔 ติดตามงาน (Urgent!)"
+        }
+        header_text = header_map.get(status_type, f"📦 อัปเดตสถานะ: {status_type}")
 
         message_text = (
-            f"{header_text}\n"
-            f"---------------------------\n"
-            f"🔢 WO: {wo}\n"
-            f"🆔 SN: {sn}\n"
-            f"📦 Model: {model}\n"
-            f"⚠️ อาการ: {failure}\n"
-            f"👤 ผู้แจ้ง: {operator}\n"
-            f"---------------------------\n"
-            f"⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"{header_text}\n---------------------------\n"
+            f"🔢 WO: {wo}\n🆔 SN: {sn}\n📦 Model: {model}\n"
+            f"⚠️ อาการ: {failure}\n👤 ผู้แจ้ง: {operator}\n"
+            f"---------------------------\n⏰ เวลา: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
-
         payload = {"to": line_to, "messages": [{"type": "text", "text": message_text}]}
         requests.post(url, headers=headers, data=json.dumps(payload))
         return True
     except:
         return False
 
-# --- 3. LOGIN PAGE (BEFORE LOGGED IN) ---
+# --- 3. SESSION STATE ---
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'user' not in st.session_state: st.session_state.user = ""
+if 'role' not in st.session_state: st.session_state.role = ""
+if 'station' not in st.session_state: st.session_state.station = ""
+
+# --- 4. LOGIN & PUBLIC TRACKING ---
 if not st.session_state.logged_in:
     tab1, tab2 = st.tabs(["🔍 ติดตามสถานะงาน (Public)", "🔐 เข้าสู่ระบบ (Staff Only)"])
-
-    # --- หน้าติดตามสถานะงาน (Public) - ปรับปรุงใหม่ ---
+    
     with tab1:
         st.title("🔎 PCBA Repair Tracking")
-        c_search1, c_search2 = st.columns(2)
-        with c_search1:
-            pub_search = st.text_input("🔢 ระบุเลข SN หรือ WO", key="pub_search").strip().upper()
-        with c_search2:
-            model_search = st.text_input("📦 ระบุ Model", key="model_search").strip().upper()
+        c1, c2 = st.columns(2)
+        p_sn = c1.text_input("🔢 SN / WO").strip().upper()
+        p_mo = c2.text_input("📦 Model").strip().upper()
         
-        if pub_search or model_search:
+        if p_sn or p_mo:
             df_pub = get_df("sheet1")
             if not df_pub.empty:
-                query = pd.Series([True] * len(df_pub))
-                if pub_search:
-                    query &= (df_pub['sn'].astype(str).str.contains(pub_search) | 
-                              df_pub['wo'].astype(str).str.contains(pub_search))
-                if model_search:
-                    query &= (df_pub['model'].astype(str).str.contains(model_search))
+                res = df_pub[
+                    (df_pub['sn'].astype(str).str.contains(p_sn) | df_pub['wo'].astype(str).str.contains(p_sn)) &
+                    (df_pub['model'].astype(str).str.contains(p_mo))
+                ]
+                if not res.empty:
+                    for _, r in res.iterrows():
+                        st.info(f"SN: {r['sn']} | Status: {r['status']} | Last Update: {r.get('tech_time','-')}")
+                else: st.warning("ไม่พบข้อมูล")
 
-                result = df_pub[query].sort_values(by='user_time', ascending=False)
-                
-                if not result.empty:
-                    st.write(f"พบข้อมูลทั้งหมด {len(result)} รายการ")
-                    for _, r in result.iterrows():
-                        status = r.get('status', 'Pending')
-                        
-                        # --- กำหนดรายละเอียดสถานะให้ชัดเจน ---
-                        if status == "Pending":
-                            status_label = "🟠 **รอช่างตรวจสอบ (Pending)**"
-                            waiting_info = "⏳ ขั้นตอน: งานรอช่างเข้าคิวตรวจสอบ"
-                            card_bg, border_c = "#FFF9F0", "#FFA500"
-                        elif status == "Completed":
-                            status_label = "✅ **ซ่อมเสร็จสิ้น (Completed)**"
-                            waiting_info = "📦 ขั้นตอน: ซ่อมเสร็จแล้ว พร้อมส่งมอบ"
-                            card_bg, border_c = "#F0FFF4", "#28A745"
-                        else:
-                            status_label = f"🔍 **{status}**"
-                            waiting_info = ""
-                            card_bg, border_c = "#F8F9FA", "#6C757D"
-
-                        with st.container(border=True):
-                            # ส่วนการแสดงผลหลัก (Public View)
-                            st.markdown(f"""
-                                <div style="background-color:{card_bg}; border-left: 5px solid {border_c}; padding: 12px; border-radius: 5px;">
-                                    <h4 style="margin:0; color:#1a1a1a;">🔢 SN: {r['sn']}</h4>
-                                    <p style="margin:4px 0; font-size:0.9rem; color:#444;">📦 Model: {r['model']} | WO: {r.get('wo','-')}</p>
-                                    <div style="font-weight:bold; color:#d35400; font-size:0.85rem;">{waiting_info}</div>
-                                </div>
-                            """, unsafe_allow_html=True)
-                            
-                            col_p1, col_p2 = st.columns(2)
-                            with col_p1:
-                                st.write(f"📍 **สถานะ:** {status_label}")
-                                st.write(f"🕒 **เวลาแจ้งซ่อม:** {r['user_time']}")
-                            
-                            with col_p2:
-                                if status == "Completed":
-                                    # สำหรับบุคคลทั่วไป แสดงเวลาที่เสร็จเพื่อให้ทราบความคืบหน้า
-                                    st.write(f"👷 **ช่างผู้ดูแล:** {r.get('tech_id', '-')}")
-                                    st.write(f"🏁 **วันที่ซ่อมเสร็จ:** {r.get('tech_time', '-')}")
-                                elif status == "Pending":
-                                    st.info("ℹ️ พนักงานผู้แจ้งสามารถกด 'ตามงาน' ได้ในหน้าล็อคอิน")
-
-                            # แสดงรายละเอียดวิธีซ่อมสั้นๆ ให้ทราบ (Public)
-                            if status == "Completed":
-                                with st.expander("📝 สรุปการแก้ไข"):
-                                    st.write(f"**วิธีแก้:** {r.get('action', '-')}")
-                else:
-                    st.warning("❌ ไม่พบข้อมูล")
     with tab2:
-        st.subheader("พนักงาน/ช่างซ่อม เข้าสู่ระบบ")
         with st.form("login_form"):
-            u = st.text_input("Username").strip()
-            p = st.text_input("Password", type="password").strip()
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
             if st.form_submit_button("Login"):
                 df_u = get_df("users")
-                if not df_u.empty:
-                    match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
-                    if not match.empty:
-                        st.session_state.update({
-                            "logged_in": True, "user": u, 
-                            "role": match.iloc[0]['role'],
-                            "station": match.iloc[0].get('station', 'General')
-                        })
-                        st.rerun()
-                    else:
-                        st.error("❌ ข้อมูลไม่ถูกต้อง")
+                match = df_u[(df_u['username'] == u) & (df_u['password'] == p)]
+                if not match.empty:
+                    st.session_state.update({
+                        "logged_in": True, "user": u, 
+                        "role": match.iloc[0]['role'], "station": match.iloc[0].get('station', 'General')
+                    })
+                    st.rerun()
+                else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
 
-# --- 4. SIDEBAR (AFTER LOGGED IN) ---
+# --- 5. SIDEBAR (AFTER LOGIN) ---
 with st.sidebar:
-    st.markdown(f"""
-        <div style="padding:15px; background:linear-gradient(135deg, #004a99 0%, #002d5f 100%); border-radius:10px; color:white;">
-            <small>User:</small><h3 style="margin:0;">👤 {st.session_state.user}</h3>
-            <span style="background:#f39c12; color:black; padding:2px 8px; border-radius:5px; font-size:0.8rem; font-weight:bold;">{st.session_state.role.upper()}</span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"### 👤 {st.session_state.user}\n**Role:** {st.session_state.role.upper()}")
     if st.button("🚪 Sign Out"):
         st.session_state.logged_in = False
         st.rerun()
     st.divider()
     st.write("● System Online" if status_conn else "● Offline")
 
-# --- 4. MAIN APP LOGIC ---
+# --- 6. MAIN CONTENT BY ROLE ---
 role = st.session_state.role
-with st.sidebar:
-    st.title(f"👤 {st.session_state.user}")
-    st.caption(f"Role: {role.upper()} | Station: {st.session_state.station}")
-    if st.button("🚪 Sign Out"):
-        st.session_state.logged_in = False
-        st.rerun()
-
-
 
 # ---------------- [SECTION: ADMIN] ----------------
 if role == "admin":
     tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
     df_main = get_df("sheet1")
 
+    # นิยามค่าตั้งต้นเพื่อป้องกัน Error หาก df_main ว่าง
+    df_filtered = pd.DataFrame() 
+    df_lead = pd.DataFrame()
+    avg_lt = 0
+
     with tabs[0]:  # 📊 DASHBOARD
         st.subheader("📊 Performance Analysis")
         if not df_main.empty:
+            # แปลงวันที่เพื่อให้คำนวณได้
             df_main['user_time'] = pd.to_datetime(df_main['user_time'], errors='coerce')
+            df_main['tech_time'] = pd.to_datetime(df_main.get('tech_time', datetime.now()), errors='coerce')
             
             with st.container(border=True):
                 c0, c1, c2, c3 = st.columns([1, 1.5, 1.5, 1])
-                # --- [เพิ่ม] ตัวกรอง Category ใน Dashboard ---
                 view_cat = c0.selectbox("🗂️ ประเภท", ["All"] + get_category_options())
                 start_d = c1.date_input("📅 วันที่เริ่มต้น", datetime.now().replace(day=1))
                 end_d = c2.date_input("📅 วันที่สิ้นสุด", datetime.now())
                 
+                # Filter ข้อมูลตามเงื่อนไข
                 mask = (df_main['user_time'].dt.date >= start_d) & (df_main['user_time'].dt.date <= end_d)
                 if view_cat != "All":
                     mask &= (df_main['category'] == view_cat)
                 
+                df_filtered = df_main[mask].copy()
+
                 # ปุ่ม Export Excel
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    df_filtered.to_excel(writer, index=False, sheet_name='Report')
-                c3.write("")
-                c3.download_button("📥 Export Excel", buffer.getvalue(), f"PCBA_Report_{start_d}.xlsx", use_container_width=True)
+                if not df_filtered.empty:
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        df_filtered.to_excel(writer, index=False, sheet_name='Report')
+                    c3.write("")
+                    c3.download_button("📥 Export Excel", buffer.getvalue(), f"PCBA_Report_{start_d}.xlsx", use_container_width=True)
 
-            # --- 3. คำนวณ Lead Time เฉพาะงานที่เสร็จ ---
-            df_lead = df_filtered[df_filtered['status'] == 'Completed'].copy()
-            if not df_lead.empty:
-                df_lead['duration'] = (df_lead['tech_time'] - df_lead['user_time']).dt.total_seconds() / 3600
-                avg_lt = df_lead['duration'].mean()
+            if not df_filtered.empty:
+                # คำนวณ Lead Time (ชั่วโมง)
+                df_lead = df_filtered[df_filtered['status'] == 'Completed'].copy()
+                if not df_lead.empty:
+                    df_lead['duration'] = (df_lead['tech_time'] - df_lead['user_time']).dt.total_seconds() / 3600
+                    avg_lt = df_lead['duration'].mean()
 
-            # --- 4. บัตรตัวเลขหลัก (KPI Cards) ---
-            total = len(df_filtered)
-            comp = len(df_lead)
-            pend = len(df_filtered[df_filtered['status'] == 'Pending'])
-            success_rate = (comp / total * 100) if total > 0 else 0
+                # KPI Cards
+                total = len(df_filtered)
+                comp = len(df_lead)
+                pend = len(df_filtered[df_filtered['status'] == 'Pending'])
+                success_rate = (comp / total * 100) if total > 0 else 0
 
-            # บังคับสีตัวหนังสือและสไตล์ Card
-            st.markdown("""
-                <style>
-                [data-testid="stMetricValue"] { color: #004a99 !important; font-weight: bold; }
-                [data-testid="stMetricLabel"] { color: #333333 !important; }
-                div[data-testid="metric-container"] {
-                    background-color: #ffffff; 
-                    border: 1px solid #d1d5db;
-                    padding: 15px;
-                    border-radius: 10px;
-                }
-                </style>
-            """, unsafe_allow_html=True)
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Total Jobs", f"{total} Pcs.")
+                k2.metric("Completed", f"{comp} Pcs.", delta=f"{success_rate:.1f}% Rate")
+                k3.metric("Pending", f"{pend} Pcs.", delta_color="inverse")
+                k4.metric("Avg. Lead Time", f"{avg_lt:.1f} Hrs")
 
-            k1, k2, k3, k4 = st.columns(4)
-            with k1: st.metric("Total Jobs", f"{total} Pcs.")
-            with k2: st.metric("Completed", f"{comp} Pcs.", delta=f"{success_rate:.1f}% Rate")
-            with k3: st.metric("Pending", f"{pend} Pcs.", delta=f"{pend} งานค้าง", delta_color="inverse")
-            with k4: st.metric("Avg. Lead Time", f"{avg_lt:.1f} Hrs")
+                st.divider()
 
-            st.divider()
+                # Charts
+                col_chart1, col_chart2 = st.columns(2)
+                with col_chart1:
+                    st.markdown("#### 🍕 Defect Classification")
+                    # ตรวจสอบว่ามีคอลัมน์ classification ไหม
+                    if 'classification' in df_filtered.columns:
+                        df_cl = df_filtered[df_filtered['classification'] != ""]
+                        if not df_cl.empty:
+                            fig_pie = px.pie(df_cl, names='classification', hole=0.5)
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                    else: st.info("รอข้อมูล Classification")
 
-            # --- 5. กราฟวิเคราะห์ (Charts) ---
-            col_chart1, col_chart2 = st.columns([1, 1])
-            
-            with col_chart1:
-                st.markdown("#### 🍕 Defect Classification")
-                df_cl = df_filtered[df_filtered['classification'] != ""]
-                if not df_cl.empty:
-                    fig_pie = px.pie(df_cl, names='classification', hole=0.5, 
-                                   color_discrete_sequence=px.colors.qualitative.Pastel)
-                    st.plotly_chart(fig_pie, use_container_width=True) # ปิดวงเล็บให้เรียบร้อยแล้ว
-                else:
-                    st.info("ไม่มีข้อมูล Classification")
-
-            with col_chart2:
-                st.markdown("#### 📈 Repair Trend (Daily)")
-                trend_df = df_filtered.copy()
-                trend_df['date'] = trend_df['user_time'].dt.date
-                trend_data = trend_df.groupby(['date', 'status']).size().reset_index(name='count')
-                if not trend_data.empty:
-                    fig_line = px.line(trend_data, x='date', y='count', color='status',
-                                     markers=True, line_shape="spline",
-                                     color_discrete_map={'Completed': '#28A745', 'Pending': '#FFA500'})
-                    st.plotly_chart(fig_line, use_container_width=True) # ปิดวงเล็บให้เรียบร้อยแล้ว
-
-            # --- 6. Lead Time Analysis ---
-            st.divider()
-            st.markdown("#### ⏱️ Lead Time Analysis by Model (Top 10)")
-            if not df_lead.empty:
-                model_lt = df_lead.groupby('model')['duration'].mean().reset_index().sort_values('duration', ascending=False).head(10)
-                fig_lt = px.bar(model_lt, x='model', y='duration', color='duration', color_continuous_scale='Reds')
-                fig_lt.add_hline(y=avg_lt, line_dash="dot", annotation_text=f"Avg: {avg_lt:.1f}h", line_color="orange")
-                st.plotly_chart(fig_lt, use_container_width=True)
-            else:
-                st.info("ยังไม่มีข้อมูลสำหรับคำนวณ Lead Time")
+                with col_chart2:
+                    st.markdown("#### 📈 Repair Trend")
+                    trend_df = df_filtered.copy()
+                    trend_df['date'] = trend_df['user_time'].dt.date
+                    trend_data = trend_df.groupby(['date', 'status']).size().reset_index(name='count')
+                    if not trend_data.empty:
+                        fig_line = px.line(trend_data, x='date', y='count', color='status', markers=True)
+                        st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.warning("⚠️ ไม่พบข้อมูลในระบบ")
-            
+
     with tabs[1]:  # Master Data
         sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
         df_edit = get_df(sub)
-
         if not df_edit.empty:
-            if sub == "users":
-                # ดึงตัวเลือกจาก Sheet station_dropdowns
-                st_list = get_dropdown_options("station_dropdowns")
-                st_list = [s for s in st_list if s != "--กรุณาเลือก--"]
-
-                # ตรวจสอบว่าค่าที่มีอยู่ใน df_edit มีอันไหนไม่อยู่ใน st_list ไหม (ป้องกัน Error พิมพ์ไม่ได้)
-                current_stations = df_edit['station'].unique().tolist()
-                combined_options = list(set(st_list + [str(x) for x in current_stations if x and x != "None"]))
-
-                edited = st.data_editor(
-                    df_edit,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="editor_users",
-                    column_config={
-                        "station": st.column_config.SelectboxColumn(
-                            "Station",
-                            options=combined_options,  # ใช้ตัวเลือกที่รวมค่าเก่าและค่าใหม่เข้าด้วยกัน
-                            width="medium"
-                        ),
-                        "role": st.column_config.SelectboxColumn(
-                            "Role",
-                            options=["admin", "user", "technician"]
-                        )
-                    }
-                )
-            else:
-                # สำหรับตารางอื่นๆ ให้พิมพ์ได้อิสระ
-                edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True, key="editor_other")
-
-            if st.button(f"💾 Save {sub}", key="save_master"):
+            edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
+            if st.button(f"💾 Save {sub}"):
                 ws = ss.worksheet(sub)
                 ws.clear()
-                # เติมค่าว่างแทนที่ None ก่อนบันทึก
-                df_to_save = edited.fillna("")
-                ws.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist())
-                st.success("บันทึกข้อมูลเรียบร้อยแล้ว!")
-                st.rerun()
+                ws.update([edited.columns.values.tolist()] + edited.fillna("").values.tolist())
+                st.success("บันทึกข้อมูลเรียบร้อย!")
 
-    with tabs[2]:  # Dropdowns
-        drop = st.selectbox("เลือก Dropdown",
-                            ["station_dropdowns", "defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
-        df_drop = get_df(drop)
-        edited_drop = st.data_editor(df_drop, num_rows="dynamic")
-        if st.button(f"💾 Update {drop}"):
-            ws = ss.worksheet(drop);
-            ws.clear();
-            ws.update([edited_drop.columns.values.tolist()] + edited_drop.values.tolist());
-            st.success("Updated!")
-
-    with tabs[3]:
-        st.dataframe(df_main, use_container_width=True)
-
-    with tabs[4]:  # 📸 QA GALLERY
-        st.subheader("🔍 QA Inspection")
-        c_search1, c_search2, c_search3 = st.columns([2, 1, 1])
-        search_sn = c_search1.text_input("🔍 Search SN", key="qa_search_sn")
-        # --- [เพิ่ม] ตัวกรอง Category ใน QA ---
-        filter_cat = c_search2.selectbox("🗂️ Category", ["All"] + get_category_options())
-        filter_status = c_search3.selectbox("Status", ["All", "Completed", "Pending"], key="qa_status")
-
-        df_qa_view = df_main.copy()
+    with tabs[4]:  # 📸 QA GALLERY & APPROVAL
+        st.subheader("🔍 QA Inspection & Decision")
+        search_sn = st.text_input("🔍 Search SN", key="qa_search_sn").strip().upper()
+        
+        df_qa = df_main.copy()
         if search_sn:
-            df_qa_view = df_qa_view[df_qa_view['sn'].astype(str).str.contains(search_sn, case=False, na=False)]
-        if filter_status != "All":
-            df_qa_view = df_qa_view[df_qa_view['status'] == filter_status]
-
-        # 3. แสดงผลรายการข้อมูล
-        if not df_qa_view.empty:
-            for index, row in df_qa_view.sort_index(ascending=False).iterrows():
-                # กำหนดสีตามสถานะ
-                status_color = "#28a745" if row['status'] == 'Completed' else "#ffc107" if row['status'] == 'Pending' else "#dc3545"
+            df_qa = df_qa[df_qa['sn'].astype(str).str.contains(search_sn)]
+        
+        # แสดงเฉพาะรายการที่รอ QA (Status = Completed แต่ยังไม่ Approved)
+        # สมมติว่ามี Column ชื่อ 'qa_status' ใน Sheet
+        for index, row in df_qa.sort_index(ascending=False).head(10).iterrows():
+            with st.container(border=True):
+                h1, h2 = st.columns([3, 1])
+                h1.subheader(f"📦 SN: {row['sn']} (Model: {row['model']})")
+                h2.write(f"Status: **{row['status']}**")
                 
-                with st.container(border=True):
-                    # --- หัวข้อรายการ ---
-                    h1, h2 = st.columns([3, 1])
-                    h1.markdown(f"### 📦 SN: {row['sn']}")
-                    h2.markdown(f"<p style='text-align:right; color:{status_color}; font-weight:bold; font-size:18px;'>● {row['status']}</p>", unsafe_allow_html=True)
+                exp = st.expander("👁️ View Details & Images")
+                with exp:
+                    c_img1, c_img2 = st.columns(2)
+                    with c_img1:
+                        st.caption("Before (User)")
+                        if row.get('img_user'): 
+                            st.image(f"data:image/jpeg;base64,{row['img_user']}")
+                    with c_img2:
+                        st.caption("After (Tech)")
+                        if row.get('img_tech'): 
+                            st.image(f"data:image/jpeg;base64,{row['img_tech']}")
+                
+                # QA Decision Logic
+                if row['status'] == "Completed":
+                    q1, q2, q3 = st.columns([1, 2, 1])
+                    comment = q2.text_input("QA Comment", key=f"qa_cmt_{index}")
                     
-                    # --- รายละเอียดงานเบื้องต้น ---
-                    t1, t2, t3 = st.columns(3)
-                    t1.write(f"**📟 Model:** {row['model']}")
-                    t2.write(f"**📍 Station:** {row['station']}")
-                    t3.write(f"**🛠️ Tech ID:** {row.get('tech_id', '-')}")
-
-                    # --- [ไฮไลท์] ส่วนที่ซ่อนรูปภาพ (Expander) ---
-                    with st.expander("🖼️ คลิกเพื่อดูรูปภาพ Before / After และรายละเอียดการซ่อม"):
-                        img_col1, img_col2 = st.columns(2)
+                    if q1.button("✅ Approve", key=f"btn_app_{index}"):
+                        row_idx = index + 2
+                        ss.worksheet("sheet1").update(f'I{row_idx}', [['QA Approved']]) # เปลี่ยน Status ใน Col I
+                        ss.worksheet("sheet1").update(f'S{row_idx}', [[comment]]) # บันทึก Comment ใน Col S
+                        st.success("Approved!")
+                        st.rerun()
                         
-                        with img_col1:
-                            st.markdown("📤 **Before (User)**")
-                            u_img = row.get('img_user', '')
-                            if u_img and u_img not in ["", "None", "nan"]:
-                                st.image(f"data:image/jpeg;base64,{u_img}", use_container_width=True)
-                            else:
-                                st.caption("ไม่มีรูปภาพประกอบจากผู้แจ้ง")
-                                
-                        with img_col2:
-                            st.markdown("📥 **After (Technician)**")
-                            t_img = row.get('img_tech', '')
-                            if t_img and t_img not in ["", "None", "nan"]:
-                                st.image(f"data:image/jpeg;base64,{t_img}", use_container_width=True)
-                            else:
-                                st.caption("ช่างยังไม่ได้อัปโหลดรูปภาพ")
-
-                        st.divider()
-                        
-                        # รายละเอียดประวัติการซ่อมใน Expander
-                        log1, log2 = st.columns(2)
-                        with log1:
-                            st.write(f"**Defect Type:** {row.get('defect_type', '-')}")
-                            st.write(f"**Symptom:** {row.get('failure', '-')}")
-                            st.write(f"**Action:** {row.get('fix_action', row.get('action', '-'))}")
-                        with log2:
-                            st.write(f"**🕒 Time Reported:** {row.get('user_time', '-')}")
-                            st.write(f"**✅ Time Finished:** {row.get('tech_time', '-')}")
-
-                    # --- ส่วนการตัดสินใจของ QA (Decision) ---
-                    if row['status'] == 'Completed':
-                        st.markdown("---")
-                        q_col1, q_col2, q_col3 = st.columns([1, 2, 1])
-                        qa_comment = q_col2.text_input("QA Comment", key=f"cmt_{index}", placeholder="ระบุหมายเหตุการตรวจ...")
-                        
-                        if q_col1.button("✅ Approve", key=f"app_{index}", use_container_width=True):
-                            st.success(f"Approved SN: {row['sn']}")
-                            # เพิ่ม logic การอัปเดต Google Sheets ตรงนี้ได้
-                        
-                        if q_col3.button("❌ Reject", key=f"rej_{index}", use_container_width=True):
-                            st.error(f"Rejected SN: {row['sn']}")
-                            # เพิ่ม logic การแจ้งกลับช่างตรงนี้ได้
-        else:
-            st.info("ไม่พบรายการที่ตรงกับเงื่อนไขการค้นหา")
-# ---------------- [SECTION: TECHNICIAN - ปรับปรุงใหม่] ----------------
+                    if q3.button("❌ Reject", key=f"btn_rej_{index}"):
+                        row_idx = index + 2
+                        ss.worksheet("sheet1").update(f'I{row_idx}', [['Rejected']])
+                        st.error("Rejected!")
+                        st.rerun()
+# ---------------- [SECTION: TECHNICIAN] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
-    target_sn = st.text_input("🔍 Scan Serial Number (SN)").upper()
+    target_sn = st.text_input("🔍 Scan Serial Number (SN)").strip().upper()
 
     if target_sn:
         df_main = get_df("sheet1")
         if not df_main.empty:
-            # ค้นหา SN ที่ตรงกัน
+            # ค้นหา SN ที่ตรงกัน (ทำสำเนาเพื่อป้องกัน SettingWithCopyWarning)
             jobs = df_main[df_main['sn'].astype(str) == target_sn].copy()
             
             if not jobs.empty:
-                # สร้างตัวเลือกรายการกรณี SN ซ้ำ (เช่น เคยซ่อมไปแล้ว)
-                options = [(i, f"รายการที่ {i+1} | {r['status']} | {r['model']}") for i, r in jobs.iterrows()]
-                sel = st.radio("เลือกรายการที่ต้องการอัปเดต:", options, format_func=lambda x: x[1])
-                idx_original, job = sel[0], jobs.loc[sel[0]]
-                sel_row = idx_original + 2  # แปลง Index เป็นแถวใน Google Sheets
+                # สร้างตัวเลือกรายการ: แสดงลำดับ, สถานะ และวันที่แจ้งล่าสุด
+                options = [(i, f"Job #{i+1} | Status: {r['status']} | Model: {r['model']} ({r['user_time']})") for i, r in jobs.iterrows()]
+                # เรียงลำดับเอาอันล่าสุดขึ้นก่อนเพื่อให้เลือกง่าย
+                options.reverse() 
+                
+                sel = st.radio("เลือกรายการที่ต้องการดำเนินการ:", options, format_func=lambda x: x[1])
+                idx_original, job_desc = sel[0], sel[1]
+                job = jobs.loc[idx_original]
+                sel_row = idx_original + 2  # แปลง Index (0-based) เป็นแถว Excel (Header + 1)
 
                 with st.container(border=True):
                     c_u1, c_u2 = st.columns([2, 1])
                     with c_u1:
-                        st.write(f"**🔢 SN:** {job['sn']} | **📦 Model:** {job['model']}")
+                        st.markdown(f"### 🔢 SN: {job['sn']}")
+                        st.markdown(f"**📦 Model:** {job['model']} | **🔢 WO:** {job.get('wo', '-')}")
                         st.error(f"⚠️ **Symptom:** {job.get('failure', 'N/A')}")
-                    if job.get('img_user'): 
-                        c_u2.image(f"data:image/jpeg;base64,{job['img_user']}", caption="Before")
+                    
+                    with c_u2:
+                        # ตรวจสอบว่ามีคอลัมน์รูปภาพ User หรือไม่ (สมมติอยู่ Column R หรือเรียกตามชื่อ)
+                        u_img = job.get('img_user', '')
+                        if u_img and str(u_img) not in ["", "None", "nan"]:
+                            st.image(f"data:image/jpeg;base64,{u_img}", caption="รูปภาพจากผู้แจ้ง", use_container_width=True)
+                        else:
+                            st.caption("🚫 ไม่มีรูปประกอบ")
 
                 # --- ฟอร์มบันทึกผลการซ่อม ---
                 with st.form("update_form"):
                     st.write("### 📝 บันทึกผลการซ่อม")
-                    stt = st.selectbox("Status", ["Completed", "In Progress", "Wait Part"])
-                    rc = st.text_input("Real Case / Root Cause")
-                    dt = st.selectbox("Defect Type", get_dropdown_options("defect_dropdowns"))
-                    ac = st.selectbox("Action", get_dropdown_options("action_dropdowns"))
-                    cl = st.selectbox("Classification", get_dropdown_options("classification_dropdowns"))
-                    imgs = st.file_uploader("Upload Repair Photo", accept_multiple_files=True)
+                    col_f1, col_f2 = st.columns(2)
+                    
+                    with col_f1:
+                        stt = st.selectbox("Status", ["Completed", "In Progress", "Wait Part", "Scrap"])
+                        rc = st.text_input("Real Case / Root Cause", placeholder="ระบุสาเหตุที่พบ")
+                        dt = st.selectbox("Defect Type", get_dropdown_options("defect_dropdowns"))
+                    
+                    with col_f2:
+                        ac = st.selectbox("Action", get_dropdown_options("action_dropdowns"))
+                        cl = st.selectbox("Classification", get_dropdown_options("classification_dropdowns"))
+                        imgs = st.file_uploader("Upload Repair Photo(s)", accept_multiple_files=True)
 
                     if st.form_submit_button("💾 Save Update"):
                         ws = ss.worksheet("sheet1")
-                        # อัปเดตข้อมูลลง Sheet (Columns ตามลำดับ I, K, L, M, N, P, Q, S)
-                        ws.update(f'I{sel_row}', [[stt]])
-                        ws.update(f'K{sel_row}:N{sel_row}', [[rc, dt, ac, cl]])
-                        ws.update(f'P{sel_row}', [[st.session_state.user]])
-                        ws.update(f'Q{sel_row}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
                         
+                        # 1. อัปเดตสถานะ (Col I)
+                        ws.update(f'I{sel_row}', [[stt]])
+                        
+                        # 2. อัปเดตรายละเอียดการซ่อม (K: Root Cause, L: Defect Type, M: Action, N: Classification)
+                        # ตรวจสอบลำดับ Column ใน Sheet อีกครั้งว่า K-N ตรงกันหรือไม่
+                        ws.update(f'K{sel_row}:N{sel_row}', [[rc, dt, ac, cl]])
+                        
+                        # 3. อัปเดตข้อมูลผู้ซ่อมและเวลา (P: Tech ID, Q: Tech Time)
+                        ws.update(f'P{sel_row}:Q{sel_row}', [[st.session_state.user, datetime.now().strftime("%Y-%m-%d %H:%M")]])
+                        
+                        # 4. จัดการรูปภาพ (ถ้ามีการอัปโหลดใหม่)
                         if imgs:
                             img_tech_b64 = save_multiple_images_b64(imgs)
-                            ws.update(f'S{sel_row}', [[img_tech_b64]])
+                            # ตรวจสอบว่ารูป Tech เก็บที่ Col S หรือไม่ (ถ้าใช่ใช้ S)
+                            ws.update(f'R{sel_row}', [[img_tech_b64]])
 
-                        # ส่ง LINE แจ้งเตือน
+                        # 5. แจ้งเตือนผ่าน LINE
+                        line_msg = f"🛠️ **Update: {stt}**\nSN: {job['sn']}\nCause: {rc}\nBy: {st.session_state.user}"
                         send_line_message(
                             job.get('wo', '-'), job['sn'], job['model'], 
-                            f"ผลการซ่อม: {stt} ({rc})", 
-                            status_type="Completed" if stt=="Completed" else "Updated", 
+                            f"ผลซ่อม: {stt} | {rc}", 
+                            status_type=stt, 
                             operator=st.session_state.user
                         )
-                        st.success(f"✅ อัปเดต SN: {job['sn']} เรียบร้อย!")
+                        
+                        st.success(f"✅ บันทึกข้อมูล SN: {job['sn']} เรียบร้อย!")
+                        st.balloons()
                         st.rerun()
             else:
                 st.warning("❌ ไม่พบข้อมูล SN นี้ในระบบ")
-                
+# ---------------- [SECTION: USER / OPERATOR] ----------------
 elif role == "user":
     menu = st.sidebar.radio("📍 เมนูการใช้งาน", ["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามสถานะงาน"])
 
@@ -531,7 +378,7 @@ elif role == "user":
         st.title("📱 Repair Request Form")
         
         with st.form("request_form", clear_on_submit=True):
-            # 1. เลือกประเภทงาน (จะถูกบันทึกลงคอลัมน์ B)
+            # 1. เลือกประเภทงาน
             repair_category = st.radio("🛠️ เลือกประเภทงานซ่อม", ["PCBA", "Machine"], horizontal=True)
             
             col1, col2 = st.columns(2)
@@ -540,29 +387,28 @@ elif role == "user":
             with col2:
                 sn = st.text_input("Serial Number (SN)", placeholder="สแกน SN...").strip().upper()
             
-            # 2. ปรับเปลี่ยนช่องกรอก Model ตามประเภทที่เลือก
+            # 2. ปรับเปลี่ยน Model ตามประเภท
             if repair_category == "PCBA":
                 model_options = get_dropdown_options("model_mat")
                 model = st.selectbox("Model PCBA", model_options)
             else:
                 model = st.text_input("Machine Name / Model", placeholder="ระบุชื่อเครื่องจักร/รุ่น")
             
-            st.info(f"📍 **แจ้งจากสถานี:** {u_station}")
+            st.info(f"📍 **แจ้งจากสถานี:** {u_station}") # u_station ดึงมาจาก session_state
             
             failure = st.text_area("Symptom / Failure Description (อาการเสีย)")
             u_file = st.file_uploader("Attach Photo (รูปอาการเสีย)", type=['png', 'jpg', 'jpeg'])
 
-            # ปุ่มส่งข้อมูล
             submit_btn = st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม")
 
             if submit_btn:
-                # ตรวจสอบเงื่อนไขความครบถ้วน
+                # ตรวจสอบความถูกต้องของข้อมูล
                 is_pcba_invalid = (repair_category == "PCBA" and (model == "--กรุณาเลือก--" or not model))
                 if not sn or not wo or is_pcba_invalid:
                     st.error("❌ กรุณากรอกข้อมูลสำคัญ (WO, SN, Model) ให้ครบถ้วน")
                 else:
                     with st.spinner("กำลังบันทึกข้อมูล..."):
-                        # ค้นหา Product Name เฉพาะกรณี PCBA
+                        # ค้นหา Product Name กรณี PCBA
                         p_name = "-"
                         if repair_category == "PCBA":
                             df_models = get_df("model_mat")
@@ -571,11 +417,11 @@ elif role == "user":
                         
                         img_b64 = save_image_b64(u_file)
 
-                        # 3. จัดเรียงข้อมูลให้ตรงกับ Column A-S (19 คอลัมน์)
-                        # A=user, B=category, C=wo, D=sn, E=model, F=product, G=station...
+                        # จัดเรียงข้อมูลลง A-S (19 คอลัมน์)
+                        # หมายเหตุ: คอลัมน์ S (ลำดับที่ 19) ในที่นี้ใช้เก็บ last_notify สำหรับระบบติดตาม
                         new_data = [
                             st.session_state.user,      # A: user_id
-                            repair_category,            # B: category (เพิ่มใหม่)
+                            repair_category,            # B: category
                             wo,                         # C: wo
                             sn,                         # D: sn
                             model,                      # E: model
@@ -584,17 +430,15 @@ elif role == "user":
                             failure,                    # H: failure
                             "Pending",                  # I: status
                             datetime.now().strftime("%Y-%m-%d %H:%M"), # J: user_time
-                            "", "", "", "", "",         # K-O: เว้นว่าง (Tech fields)
+                            "", "", "", "", "",         # K-O: Tech fields (ว่าง)
                             "",                         # P: tech_id
                             "",                         # Q: tech_time
                             img_b64,                    # R: img_user
-                            ""                          # S: img_tech
+                            ""                          # S: last_notify_time (ใช้สำหรับ Cooldown)
                         ]
                         
-                        # บันทึกลง Google Sheets
                         ss.worksheet("sheet1").append_row(new_data)
                         
-                        # ส่ง LINE Notification
                         send_line_message(
                             wo, sn, f"[{repair_category}] {model}", 
                             failure, 
@@ -602,99 +446,84 @@ elif role == "user":
                             operator=st.session_state.user
                         )
                         
-                        st.success(f"✅ บันทึกรายการ {repair_category} (WO: {wo}) สำเร็จ!")
+                        st.success(f"✅ บันทึกรายการ {repair_category} สำเร็จ!")
                         st.balloons()
 
-    # --- ฟีเจอร์ที่ 2: หน้าติดตามสถานะและตามงาน (ปรับปรุงใหม่) ---
+    # --- ฟีเจอร์ที่ 2: ติดตามสถานะ ---
     elif menu == "🔍 ติดตามสถานะงาน":
         st.title("🔎 Follow Up Status")
-        search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)", placeholder="พิมพ์เลขที่ต้องการค้นหา...").strip().upper()
+        search_input = st.text_input("🔍 ค้นหาด่วน (SN/WO)").strip().upper()
 
         df_main = get_df("sheet1")
         if not df_main.empty:
+            # กรองข้อมูล
             if search_input:
                 filtered_df = df_main[df_main['sn'].astype(str).str.contains(search_input) | 
                                     df_main['wo'].astype(str).str.contains(search_input)]
             else:
-                filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(15)
+                filtered_df = df_main[df_main['user_id'].astype(str) == str(st.session_state.user)].tail(10)
 
-            for idx, r in filtered_df.iloc[::-1].iterrows():
-                status = r.get('status', 'Pending')
-                row_index = idx + 2
-                
-                # --- [เพิ่ม] กำหนดคำอธิบายสถานะให้ชัดเจนว่า "รออะไร" ---
-                if status == "Pending":
-                    status_desc = "🟠 **รอช่างตรวจสอบ (Pending)**"
-                    waiting_for = "⏳ กำลังรอ: ช่างสแกนรับงานเข้าคิวซ่อม"
-                    card_color = "#FFF9F0"
-                    border_color = "#FFA500"
-                elif status == "Completed":
-                    status_desc = "✅ **ซ่อมเสร็จสิ้น (Completed)**"
-                    waiting_for = "📦 สถานะ: งานพร้อมส่งกลับ/เข้าขั้นตอนถัดไป"
-                    card_color = "#F0FFF4"
-                    border_color = "#28A745"
-                elif status == "Scrapped":
-                    status_desc = "❌ **คัดทิ้ง (Scrapped)**"
-                    waiting_for = "⚠️ สถานะ: ซ่อมไม่ได้/รอทำเรื่องตัดทิ้ง"
-                    card_color = "#FFF5F5"
-                    border_color = "#DC3545"
-                else:
-                    status_desc = f"🔍 **{status}**"
-                    waiting_for = ""
-                    card_color = "#F8F9FA"
-                    border_color = "#6C757D"
-
-                with st.container(border=True):
-                    # ส่วนหัว Card
-                    st.markdown(f"""
-                        <div style="background-color:{card_color}; border-left: 5px solid {border_color}; padding: 12px; border-radius: 5px;">
-                            <h4 style="margin:0; color:#1a1a1a;">🔢 SN: {r['sn']}</h4>
-                            <p style="margin:4px 0; font-size:0.9rem; color:#444;">📦 Model: {r['model']} | WO: {r.get('wo','-')}</p>
-                            <div style="font-weight:bold; color:#d35400; font-size:0.85rem;">{waiting_for}</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-
-                    c1, c2 = st.columns([2, 1])
-                    with c1:
-                        st.write(f"📍 **สถานะปัจจุบัน:** {status_desc}")
-                        st.write(f"⏱️ **เวลาที่แจ้ง:** {r['user_time']}")
-                        
-                        # --- [เพิ่ม] แสดงข้อมูลช่างถ้าซ่อมเสร็จแล้ว ---
-                        if status != "Pending" and r.get('tech_id'):
-                            st.write(f"👷 **ช่างผู้ดูแล:** {r['tech_id']}")
-                            st.write(f"🏁 **เสร็จเมื่อ:** {r.get('tech_time', '-')}")
+            if filtered_df.empty:
+                st.info("ไม่พบรายการแจ้งซ่อมของคุณ")
+            else:
+                for idx, r in filtered_df.iloc[::-1].iterrows():
+                    status = r.get('status', 'Pending')
+                    row_index = idx + 2
                     
-                    with c2:
-                        if status == "Pending":
-                            # ระบบ Cooldown
-                            now = datetime.now()
-                            last_notify_str = str(r.get('last_notify', ''))
-                            can_notify = True
-                            if last_notify_str and last_notify_str not in ["", "None", "nan"]:
-                                try:
-                                    last_notify_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
-                                    if (now - last_notify_dt).total_seconds() < 600:
-                                        can_notify = False
-                                except: pass
+                    # Logic การแสดงผล Card
+                    if status == "Pending":
+                        status_desc, waiting_for, color = "🟠 Pending", "⏳ รอช่างรับงาน", "#FFA500"
+                    elif status == "Completed":
+                        status_desc, waiting_for, color = "✅ Completed", "📦 งานเสร็จแล้ว", "#28A745"
+                    else:
+                        status_desc, waiting_for, color = f"🔍 {status}", "", "#6C757D"
 
-                            if can_notify:
-                                if st.button("🔔 ตามงานด่วน", key=f"btn_{idx}", type="primary", use_container_width=True):
-                                    success = send_line_message(
-                                        r.get('wo','-'), r['sn'], r['model'], 
-                                        "❗ รบกวนตรวจสอบ งานยังไม่ได้รับการแก้ไข", 
-                                        status_type="Re-notify", 
-                                        operator=st.session_state.user
-                                    )
-                                    if success:
-                                        ss.worksheet("sheet1").update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
-                                        st.toast("ส่งแจ้งเตือนเข้า LINE กลุ่มช่างแล้ว!", icon="🔔")
-                                        st.rerun()
-                            else:
-                                st.button("⏳ เพิ่งตามไป (รอ 10น.)", key=f"wait_{idx}", disabled=True, use_container_width=True)
+                    with st.container(border=True):
+                        st.markdown(f"""
+                            <div style="border-left: 5px solid {color}; padding-left: 15px;">
+                                <h4 style="margin:0;">SN: {r['sn']} | {status_desc}</h4>
+                                <small>Model: {r['model']} | {waiting_for}</small>
+                            </div>
+                        """, unsafe_allow_html=True)
 
-                    if status != "Pending":
-                        with st.expander("📝 ดูสรุปผลการซ่อม"):
-                            st.info(f"🛠 **วิธีแก้ไข:** {r.get('action', '-')}")
-                            st.warning(f"🔍 **สาเหตุที่พบ:** {r.get('real_case', '-')}")
-                            if r.get('img_tech'):
-                                st.image(f"data:image/jpeg;base64,{r['img_tech'].split(',')[0]}", caption="รูปหลักฐานจากช่าง", width=300)
+                        c1, c2 = st.columns([2, 1])
+                        with c1:
+                            st.write(f"⏱️ **เวลาที่แจ้ง:** {r['user_time']}")
+                            if status != "Pending" and r.get('tech_id'):
+                                st.write(f"👷 **ช่างผู้ดูแล:** {r['tech_id']}")
+
+                        with c2:
+                            if status == "Pending":
+                                # ระบบ Cooldown 10 นาที
+                                now = datetime.now()
+                                # เช็ค Last Notify จากคอลัมน์ S (Index 18)
+                                last_notify_str = str(r.get('last_notify', ''))
+                                can_notify = True
+                                
+                                if last_notify_str and last_notify_str not in ["", "None", "nan"]:
+                                    try:
+                                        last_dt = datetime.strptime(last_notify_str, "%Y-%m-%d %H:%M")
+                                        if (now - last_dt).total_seconds() < 600:
+                                            can_notify = False
+                                    except: pass
+
+                                if can_notify:
+                                    if st.button("🔔 ตามงานด่วน", key=f"btn_{idx}", type="primary"):
+                                        success = send_line_message(
+                                            r.get('wo','-'), r['sn'], r['model'], 
+                                            "❗ งานล่าช้า รบกวนช่างตรวจสอบครับ/ค่ะ", 
+                                            status_type="Re-notify", 
+                                            operator=st.session_state.user
+                                        )
+                                        if success:
+                                            # อัปเดตเวลาแจ้งเตือนล่าสุดลงช่อง S (ลำดับที่ 19)
+                                            ss.worksheet("sheet1").update_cell(row_index, 19, now.strftime("%Y-%m-%d %H:%M"))
+                                            st.toast("ส่งแจ้งเตือนแล้ว!")
+                                            st.rerun()
+                                else:
+                                    st.button("⏳ รอ 10 นาที", key=f"wait_{idx}", disabled=True)
+                        
+                        if status != "Pending":
+                            with st.expander("📝 ดูรายละเอียดการซ่อม"):
+                                st.write(f"**สาเหตุ:** {r.get('real_case', '-')}")
+                                st.write(f"**วิธีแก้:** {r.get('action', '-')}")
