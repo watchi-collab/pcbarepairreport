@@ -243,61 +243,87 @@ if role == "user":
     st.title("📋 PCBA Repair Reporting")
     u_tabs = st.tabs(["📝 New Request", "🔍 My Tracking"])
     
-    with u_tabs[0]: # แจ้งซ่อมใหม่
+    with u_tabs[0]: # --- Tab 1: แจ้งซ่อมใหม่ ---
         with st.form("repair_form", clear_on_submit=True):
             st.subheader("บันทึกข้อมูลการแจ้งซ่อม")
             c1, c2 = st.columns(2)
+            
             with c1:
                 wo = st.text_input("Work Order (WO)").strip().upper()
                 sn = st.text_input("Serial Number (SN)").strip().upper()
-                model = st.selectbox("Model", get_dropdown_options("model_mat"))
+                # ดึงตัวเลือก Model จากฐานข้อมูล
+                model_list = get_dropdown_options("model_mat")
+                model_selected = st.selectbox("Model", model_list)
+            
             with c2:
-                product = st.text_input("Product Name")
-                # AUTO STATION: ดึงค่าจาก session_state ที่ได้ตอน Login
-                user_station = st.session_state.get('station', 'General')
-                st.info(f"📍 Station: {user_station}") 
+                # --- ส่วนของ PRODUCT NAME (แสดงเป็น String) ---
+                # ค้นหา Product Name อัตโนมัติจาก Model ที่เลือกในตาราง model_mat
+                df_model = get_df("model_mat")
+                product_display = "ไม่พบข้อมูล Product"
+                if not df_model.empty and model_selected != "--กรุณาเลือก--":
+                    # สมมติว่าตาราง model_mat มีคอลัมน์แรกเป็น Model และคอลัมน์สองเป็น Product
+                    match = df_model[df_model.iloc[:, 0].astype(str) == model_selected]
+                    if not match.empty:
+                        product_display = match.iloc[0, 1] # ดึงคอลัมน์ที่ 2 มาแสดง
+
+                st.markdown("**📦 Product Name:**")
+                st.text(product_display) # แสดงเป็น String อ่านอย่างเดียว
+                
+                # --- ส่วนของ AUTO STATION ---
+                curr_station = st.session_state.get('station', 'General')
+                st.info(f"📍 Station: **{curr_station}**")
+                
                 failure = st.text_area("Symptom / อาการเสีย")
             
-            # ซ่อนส่วน Upload รูปภาพ (หรือเอาออกหากไม่ต้องการใช้งานแล้ว)
-            # uploaded_file = st.file_uploader("แนบรูปภาพอาการเสีย", type=['jpg', 'jpeg', 'png'])
-            
             if st.form_submit_button("🚀 Submit Request", use_container_width=True):
-                if wo and sn and failure:
-                    # Logic บันทึกข้อมูล (ต้องส่ง user_station ไปบันทึกด้วย)
-                    st.success(f"ส่งข้อมูลแจ้งซ่อมจาก {user_station} เรียบร้อยแล้ว!")
-                else:
-                    st.error("กรุณากรอกข้อมูล WO, SN และอาการเสียให้ครบถ้วน")
-
-    with u_tabs[1]: # ติดตามงาน (แบบซ่อนรูปภาพ)
-        st.subheader("🔍 ติดตามสถานะงานซ่อม")
-        
-        # ค้นหาและกรองสถานะ
-        search_query = st.text_input("🔍 ค้นหาด้วย SN หรือ WO", key="u_search").strip().upper()
-        
-        df_user = get_df("sheet1")
-        if not df_user.empty:
-            my_jobs = df_user[df_user['user_id'].astype(str) == str(st.session_state.user)]
-            
-            if search_query:
-                my_jobs = my_jobs[my_jobs['sn'].astype(str).str.contains(search_query) | 
-                                 my_jobs['wo'].astype(str).str.contains(search_query)]
-
-            if not my_jobs.empty:
-                for idx, row in my_jobs.iloc[::-1].iterrows():
-                    status = row['status']
-                    st_color = "🟢" if status == "Completed" else "🟡" if status == "Pending" else "🔵"
+                if wo and sn and failure and model_selected != "--กรุณาเลือก--":
+                    # 1. บันทึกข้อมูล (ตัวอย่างการเรียกใช้งานฟังก์ชันบันทึกของคุณ)
+                    # save_to_sheets(wo, sn, model_selected, product_display, curr_station, failure)
                     
-                    # แสดงผลแบบกะทัดรัด (Compact Container)
-                    with st.container(border=True):
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            # แสดงข้อมูลเป็นบรรทัดเดียวเพื่อประหยัดพื้นที่
-                            st.markdown(f"**{st_color} Status: {status}** | **WO:** `{row['wo']}` | **SN:** `{row['sn']}`")
-                            st.caption(f"📦 {row['model']} ({row.get('product','-')}) | 📅 {row['user_time']}")
-                            st.markdown(f"⚠️ **อาการ:** {row['failure']}")
-                        with col2:
-                            if status in ["Pending", "Wait Part"]:
-                                if st.button(f"🔔 ตามงาน", key=f"ping_{idx}", use_container_width=True):
-                                    st.toast(f"ส่งสัญญาณตามงาน {row['sn']} แล้ว!")
-            else:
-                st.warning("🔎 ไม่พบข้อมูลที่ตรงกับเงื่อนไข")
+                    # 2. ส่ง LINE แจ้งเตือนด้วยฟังก์ชันเดิมของคุณ
+                    send_line_message(
+                        wo=wo, 
+                        sn=sn, 
+                        model=model_selected, 
+                        failure=failure, 
+                        status_type="New Repair Request", 
+                        operator=st.session_state.user
+                    )
+                    st.success(f"แจ้งซ่อมสำเร็จ! ระบบส่งข้อความไปยังกลุ่ม LINE แล้ว")
+                else:
+                    st.error("กรุณากรอกข้อมูล WO, SN, อาการเสีย และเลือก Model ให้ครบถ้วน")
+
+    with u_tabs[1]: # --- Tab 2: ติดตามงาน (ซ่อนรูปภาพ) ---
+        st.subheader("🔍 My Repair Status")
+        df_u = get_df("sheet1")
+        if not df_u.empty:
+            # กรองเฉพาะงานของ User ปัจจุบัน
+            my_jobs = df_u[df_u['user_id'].astype(str) == str(st.session_state.user)]
+            
+            for idx, row in my_jobs.iloc[::-1].iterrows():
+                status = row['status']
+                st_color = "🟢" if status == "Completed" else "🟡" if status == "Pending" else "🔵"
+                
+                with st.container(border=True):
+                    col_info, col_btn = st.columns([4, 1])
+                    with col_info:
+                        st.markdown(f"**{st_color} Status: {status}**")
+                        # แสดงผล Product Name แบบ String ในหน้าติดตามงาน
+                        st.markdown(f"🆔 **SN:** `{row['sn']}` | 📄 **WO:** `{row['wo']}`")
+                        st.markdown(f"📦 **Model:** {row['model']} | **Product:** {row.get('product', 'N/A')}")
+                        st.caption(f"📍 Station: {row['station']} | 📅 {row['user_time']}")
+                    
+                    with col_btn:
+                        # ปุ่มตามงาน (Ping)
+                        if status in ["Pending", "Wait Part", "In Progress"]:
+                            if st.button(f"🔔 ตามงาน", key=f"ping_user_{idx}", use_container_width=True):
+                                # ส่ง LINE ตามงานเดิม
+                                send_line_message(
+                                    wo=row['wo'], 
+                                    sn=row['sn'], 
+                                    model=row['model'], 
+                                    failure="❗ ติดตามสถานะงานด่วน (User Ping)", 
+                                    status_type="Urgent Follow-up", 
+                                    operator=st.session_state.user
+                                )
+                                st.toast("แจ้งเตือนช่างทาง LINE แล้ว!")
