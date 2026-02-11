@@ -167,181 +167,156 @@ with st.sidebar:
 # --- 6. MAIN CONTENT BY ROLE ---
 role = st.session_state.role
 
-# ---------------- [SECTION: ADMIN] ----------------
-if role == "admin":
-    tabs = st.tabs(["📊 Dashboard", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View", "📸 QA Gallery"])
-    df_main = get_df("sheet1")
-
-    # นิยามค่าตั้งต้นเพื่อป้องกัน Error หาก df_main ว่าง
-    df_filtered = pd.DataFrame() 
-    df_lead = pd.DataFrame()
-    avg_lt = 0
-
-    with tabs[0]:  # 📊 DASHBOARD
-        st.subheader("📊 Performance Analysis")
-        if not df_main.empty:
-            # แปลงวันที่เพื่อให้คำนวณได้
-            df_main['user_time'] = pd.to_datetime(df_main['user_time'], errors='coerce')
-            df_main['tech_time'] = pd.to_datetime(df_main.get('tech_time', datetime.now()), errors='coerce')
-            
-            with st.container(border=True):
-                c0, c1, c2, c3 = st.columns([1, 1.5, 1.5, 1])
-                view_cat = c0.selectbox("🗂️ ประเภท", ["All"] + get_category_options())
-                start_d = c1.date_input("📅 วันที่เริ่มต้น", datetime.now().replace(day=1))
-                end_d = c2.date_input("📅 วันที่สิ้นสุด", datetime.now())
-                
-                # Filter ข้อมูลตามเงื่อนไข
-                mask = (df_main['user_time'].dt.date >= start_d) & (df_main['user_time'].dt.date <= end_d)
-                if view_cat != "All":
-                    mask &= (df_main['category'] == view_cat)
-                
-                df_filtered = df_main[mask].copy()
-
-                # ปุ่ม Export Excel
-                if not df_filtered.empty:
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                        df_filtered.to_excel(writer, index=False, sheet_name='Report')
-                    c3.write("")
-                    c3.download_button("📥 Export Excel", buffer.getvalue(), f"PCBA_Report_{start_d}.xlsx", use_container_width=True)
-
-            if not df_filtered.empty:
-                # คำนวณ Lead Time (ชั่วโมง)
-                df_lead = df_filtered[df_filtered['status'] == 'Completed'].copy()
-                if not df_lead.empty:
-                    df_lead['duration'] = (df_lead['tech_time'] - df_lead['user_time']).dt.total_seconds() / 3600
-                    avg_lt = df_lead['duration'].mean()
-
-                # KPI Cards
-                total = len(df_filtered)
-                comp = len(df_lead)
-                pend = len(df_filtered[df_filtered['status'] == 'Pending'])
-                success_rate = (comp / total * 100) if total > 0 else 0
-
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Total Jobs", f"{total} Pcs.")
-                k2.metric("Completed", f"{comp} Pcs.", delta=f"{success_rate:.1f}% Rate")
-                k3.metric("Pending", f"{pend} Pcs.", delta_color="inverse")
-                k4.metric("Avg. Lead Time", f"{avg_lt:.1f} Hrs")
-
-                st.divider()
-
-                # Charts
-                col_chart1, col_chart2 = st.columns(2)
-                with col_chart1:
-                    st.markdown("#### 🍕 Defect Classification")
-                    # ตรวจสอบว่ามีคอลัมน์ classification ไหม
-                    if 'classification' in df_filtered.columns:
-                        df_cl = df_filtered[df_filtered['classification'] != ""]
-                        if not df_cl.empty:
-                            fig_pie = px.pie(df_cl, names='classification', hole=0.5)
-                            st.plotly_chart(fig_pie, use_container_width=True)
-                    else: st.info("รอข้อมูล Classification")
-
-                with col_chart2:
-                    st.markdown("#### 📈 Repair Trend")
-                    trend_df = df_filtered.copy()
-                    trend_df['date'] = trend_df['user_time'].dt.date
-                    trend_data = trend_df.groupby(['date', 'status']).size().reset_index(name='count')
-                    if not trend_data.empty:
-                        fig_line = px.line(trend_data, x='date', y='count', color='status', markers=True)
-                        st.plotly_chart(fig_line, use_container_width=True)
-        else:
-            st.warning("⚠️ ไม่พบข้อมูลในระบบ")
-
-    with tabs[1]:  # Master Data
-    sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_sub")
-    df_edit = get_df(sub)
+# ---------------- [SECTION: PROFESSIONAL ADMIN COMMAND CENTER] ----------------
+elif role == "admin":
+    st.title("🏛️ Admin Executive Command Center")
     
-    if not df_edit.empty:
-        st.write(f"### 📋 ตารางข้อมูล {sub}")
-        st.caption("💡 วิธีใช้งาน: ดับเบิลคลิกเพื่อแก้ไขช่องที่ต้องการ หรือเลือกแถวแล้วกด Delete ที่คีย์บอร์ดเพื่อลบเบื้องต้น")
+    # ดึงข้อมูลหลักจาก Google Sheets
+    df_all = get_df("sheet1")
+    
+    # สร้างเมนู Tabs 4 ส่วนหลัก
+    tabs = st.tabs(["📈 Analytics & Export", "👥 Master Data", "🔻 Dropdown Settings", "🔍 Repair View"])
+
+    # --- Tab 1: Analytics & Export (ส่วนวิเคราะห์และดึงรายงาน) ---
+    with tabs[0]:
+        if not df_all.empty:
+            # 1.1 Executive Summary Metrics
+            total = len(df_all)
+            completed = len(df_all[df_all['status'] == "Completed"])
+            pending = len(df_all[df_all['status'] == "Pending"])
+            success_rate = (completed / total * 100) if total > 0 else 0
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Jobs", total)
+            c2.metric("Pending Tasks", pending, delta=f"{pending} jobs", delta_color="inverse")
+            c3.metric("Completed", completed)
+            c4.metric("Success Rate", f"{success_rate:.1f}%")
+
+            st.divider()
+
+            # 1.2 กราฟวิเคราะห์
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.write("📊 **Jobs by Category**")
+                st.bar_chart(df_all['category'].value_counts())
+            with col_chart2:
+                st.write("📈 **Daily Repair Trend**")
+                df_all['date'] = pd.to_datetime(df_all['user_time']).dt.date
+                st.line_chart(df_all.groupby('date').size())
+
+            st.divider()
+
+            # 1.3 ระบบ Export Excel รายเดือน/รายสัปดาห์ พร้อม Summary Sheet
+            st.subheader("📂 Export Professional Report")
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                export_type = st.selectbox("เลือกประเภทรายงาน", ["รายสัปดาห์ (Weekly)", "รายเดือน (Monthly)", "ทั้งหมด (All)"])
+            with col_ex2:
+                selected_date = st.date_input("เลือกวันที่เริ่มต้นเพื่อกรองข้อมูล", datetime.now().date())
+
+            # Logic การกรองวันที่
+            df_all['user_time_dt'] = pd.to_datetime(df_all['user_time'])
+            if export_type == "รายสัปดาห์ (Weekly)":
+                start_date = pd.to_datetime(selected_date)
+                end_date = start_date + pd.Timedelta(days=7)
+                df_export = df_all[(df_all['user_time_dt'] >= start_date) & (df_all['user_time_dt'] < end_date)]
+            elif export_type == "รายเดือน (Monthly)":
+                df_export = df_all[(df_all['user_time_dt'].dt.month == selected_date.month) & (df_all['user_time_dt'].dt.year == selected_date.year)]
+            else:
+                df_export = df_all
+
+            if not df_export.empty:
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    # Sheet 1: รายละเอียด (ลบรูปออกเพื่อให้ไฟล์เบา)
+                    df_clean = df_export.drop(columns=['img_user', 'img_tech', 'user_time_dt', 'date'], errors='ignore')
+                    df_clean.to_excel(writer, index=False, sheet_name='Repair_Details')
+                    # Sheet 2: Executive Summary
+                    summary_status = df_clean['status'].value_counts().reset_index()
+                    summary_status.columns = ['Status', 'Count']
+                    summary_status.to_excel(writer, index=False, sheet_name='Summary_Report', startrow=1, startcol=1)
+                    
+                    # ปรับแต่งความสวยงาม
+                    workbook = writer.book
+                    header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                    ws_sum = writer.sheets['Summary_Report']
+                    ws_sum.write('B1', 'Summary by Status', header_fmt)
+                    ws_sum.set_column('B:C', 20)
+
+                st.download_button(label="📥 Download Excel Report", data=buffer.getvalue(), 
+                                   file_name=f"Repair_Report_{export_type}.xlsx", type="primary", use_container_width=True)
+
+    # --- Tab 2: Master Data (จัดการ Users & Models - พิมพ์ได้ ลบได้) ---
+    with tabs[1]:
+        st.subheader("👥 User & Model Management")
+        sub_master = st.selectbox("เลือกตารางที่ต้องการจัดการ", ["users", "model_mat"], key="master_sel")
+        df_edit = get_df(sub_master)
         
-        # 1. แสดงตารางสำหรับพิมพ์แก้ไขข้อมูล
-        # ใช้ num_rows="dynamic" เพื่อให้เพิ่มแถวใหม่ได้โดยการพิมพ์ที่บรรทัดล่างสุด
-        edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True, key=f"editor_{sub}")
-        
-        col1, col2 = st.columns([1, 3])
-        
-        with col1:
-            # 2. ปุ่มบันทึกข้อมูลที่แก้ไขหรือเพิ่มใหม่
-            if st.button(f"💾 Save {sub}", use_container_width=True):
-                ws = ss.worksheet(sub)
+        if not df_edit.empty:
+            st.info("💡 เคล็ดลับ: พิมพ์ในตารางเพื่อแก้ไข หรือเพิ่มแถวใหม่ที่บรรทัดสุดท้ายได้ทันที")
+            edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
+            
+            c_save, c_del = st.columns([1, 1])
+            if c_save.button(f"💾 Save {sub_master} Changes", type="primary", use_container_width=True):
+                ws = ss.worksheet(sub_master)
                 ws.clear()
-                # เติมค่าว่างแทน NaN เพื่อให้ Google Sheets รับข้อมูลได้
                 ws.update([edited.columns.values.tolist()] + edited.fillna("").astype(str).values.tolist())
                 st.success("บันทึกข้อมูลเรียบร้อย!")
                 st.rerun()
-        
-        st.divider()
-        
-        # 3. ฟังก์ชันการลบข้อมูล (Delete) แบบระบุแถว
-        st.subheader("🗑️ ลบข้อมูล")
-        # ใช้คอลัมน์แรก (username หรือ model) มาเป็นตัวเลือกในการลบ
-        target_col = edited.columns[0] 
-        list_to_delete = edited[target_col].tolist()
-        
-        selected_del = st.multiselect(f"เลือก {target_col} ที่ต้องการลบ:", list_to_delete)
-        
-        if st.button(f"❌ ยืนยันการลบจาก {sub}", type="secondary"):
-            if selected_del:
-                # กรองข้อมูลเอาเฉพาะแถวที่ไม่ได้ถูกเลือกให้ลบ
-                final_df = edited[~edited[target_col].isin(selected_del)]
-                ws = ss.worksheet(sub)
-                ws.clear()
-                ws.update([final_df.columns.values.tolist()] + final_df.fillna("").astype(str).values.tolist())
-                st.warning(f"ลบข้อมูลสำเร็จ!")
-                st.rerun()
-            else:
-                st.error("กรุณาเลือกข้อมูลที่ต้องการลบก่อนครับ")
-                
-    with tabs[4]:  # 📸 VIEW GALLERY (ตรวจสอบงานซ่อม)
-        st.subheader("🔍 Repair Inspection Gallery")
-        
-        # ค้นหา SN หรือเลือกสถานะเพื่อดูรูป
-        c_search1, c_search2 = st.columns([2, 2])
-        search_sn = c_search1.text_input("🔍 ค้นหาด้วย SN", key="gallery_search_sn").strip().upper()
-        filter_status = c_search2.selectbox("กรองตามสถานะ", ["All", "Completed", "Pending", "Wait Part"])
+            
+            # ฟังก์ชันลบข้อมูลเฉพาะจุด
+            with st.expander("❌ ลบข้อมูลผู้ใช้/โมเดล"):
+                target_del = st.selectbox(f"เลือก {df_edit.columns[0]} ที่ต้องการลบ", df_edit.iloc[:,0].tolist())
+                if st.button("Confirm Delete", type="secondary"):
+                    new_df = df_edit[df_edit.iloc[:,0] != target_del]
+                    ss.worksheet(sub_master).clear()
+                    ss.worksheet(sub_master).update([new_df.columns.values.tolist()] + new_df.values.tolist())
+                    st.warning("ลบข้อมูลสำเร็จ")
+                    st.rerun()
 
-        df_view = df_main.copy()
+    # --- Tab 3: Dropdown Settings (ตั้งค่าลิสต์รายการซ่อม) ---
+    with tabs[2]:
+        st.subheader("🔻 Manage Dropdown Options")
+        dd_sheet = st.selectbox("เลือกหัวข้อที่ต้องการแก้ไข", ["defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
+        df_dd = get_df(dd_sheet)
+        if not df_dd.empty:
+            edited_dd = st.data_editor(df_dd, num_rows="dynamic", use_container_width=True)
+            if st.button(f"💾 Update {dd_sheet}", use_container_width=True):
+                ws_dd = ss.worksheet(dd_sheet)
+                ws_dd.clear()
+                ws_dd.update([edited_dd.columns.values.tolist()] + edited_dd.fillna("").astype(str).values.tolist())
+                st.success("อัปเดตตัวเลือกสำเร็จ")
+
+    # --- Tab 4: Repair View (ส่องรายละเอียดและรูปภาพทั้งหมด) ---
+    with tabs[3]:
+        st.subheader("🔍 Repair Explorer (Detailed View)")
+        search_sn = st.text_input("🔍 ค้นหาด้วย Serial Number (SN)").strip().upper()
+        
+        df_view = df_all.copy()
         if search_sn:
             df_view = df_view[df_view['sn'].astype(str).str.contains(search_sn)]
-        if filter_status != "All":
-            df_view = df_view[df_view['status'] == filter_status]
 
-        if not df_view.empty:
-            # แสดง 10 รายการล่าสุด
-            for index, row in df_view.tail(10).iloc[::-1].iterrows():
-                with st.container(border=True):
-                    h1, h2 = st.columns([3, 1])
-                    h1.markdown(f"### 📦 SN: {row['sn']}")
-                    h2.markdown(f"**สถานะ:** `{row['status']}`")
-                    
-                    st.write(f"**📟 Model:** {row['model']} | **📍 Station:** {row['station']}")
-                    
-                    exp = st.expander("🖼️ คลิกเพื่อดูรูปภาพและรายละเอียดการซ่อม")
-                    with exp:
-                        img_col1, img_col2 = st.columns(2)
-                        with img_col1:
-                            st.markdown("**📤 Before (User)**")
-                            if row.get('img_user') and str(row['img_user']) not in ["", "None", "nan"]:
-                                st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
-                            else:
-                                st.caption("ไม่มีรูปภาพแจ้งซ่อม")
-                                
-                        with img_col2:
-                            st.markdown("**📥 After (Technician)**")
-                            if row.get('img_tech') and str(row['img_tech']) not in ["", "None", "nan"]:
-                                st.image(f"data:image/jpeg;base64,{row['img_tech']}", use_container_width=True)
-                            else:
-                                st.caption("ช่างยังไม่ได้อัปโหลดรูป")
-
-                        st.divider()
-                        st.write(f"🛠️ **Action:** {row.get('fix_action', row.get('action', '-'))}")
-                        st.write(f"🔍 **Root Cause:** {row.get('real_case', '-')}")
-                        st.write(f"👷 **Tech:** {row.get('tech_id', '-')} | **Time:** {row.get('tech_time', '-')}")
-        else:
-            st.info("ไม่พบข้อมูลที่ค้นหา")
+        for _, row in df_view.iloc[::-1].iterrows():
+            with st.expander(f"📌 SN: {row['sn']} | WO: {row.get('wo','-')} | Status: {row['status']}"):
+                col_info, col_img_u, col_img_t = st.columns([2, 1, 1])
+                with col_info:
+                    st.markdown(f"**Model:** {row['model']} | **Station:** {row['station']}")
+                    st.error(f"⚠️ **Symptom:** {row['failure']}")
+                    st.success(f"🛠️ **Action:** {row.get('action','-')} | **Cause:** {row.get('real_case','-')}")
+                    st.caption(f"Reporter: {row['user_id']} ({row['user_time']})")
+                    st.caption(f"Technician: {row.get('tech_id','-')} ({row.get('tech_time','-')})")
+                
+                with col_img_u:
+                    st.write("📷 **User Photo**")
+                    if row.get('img_user'):
+                        st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
+                
+                with col_img_t:
+                    st.write("📷 **Repair Photos**")
+                    if row.get('img_tech'):
+                        t_imgs = str(row['img_tech']).split('|')
+                        for t_img in t_imgs:
+                            if t_img: st.image(f"data:image/jpeg;base64,{t_img}", use_container_width=True)
 # ---------------- [SECTION: TECHNICIAN] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
