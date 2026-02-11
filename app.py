@@ -233,9 +233,6 @@ elif role == "admin":
                 ws_dd.update([edited_dd.columns.values.tolist()] + edited_dd.fillna("").astype(str).values.tolist())
                 st.success("อัปเดตสำเร็จ")
 
-# ---------------- [SECTION: TECHNICIAN] ----------------
-elif role == "technician":
-    # ... (โค้ด technician ต่อจากนี้) ...
 # ---------------- [TECHNICIAN SECTION] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
