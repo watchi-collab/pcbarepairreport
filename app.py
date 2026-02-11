@@ -221,18 +221,26 @@ elif role == "admin":
                 st.success("อัปเดตฐานข้อมูลสำเร็จ!")
                 st.rerun()
 
-    # --- Tab 4: Dropdown Settings ---
-    with tabs[3]:
-        st.subheader("🔻 ตั้งค่ารายการ Dropdowns")
-        dd_choice = st.selectbox("เลือกหัวข้อ", ["defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
-        df_dd = get_df(dd_choice)
-        if not df_dd.empty:
-            edited_dd = st.data_editor(df_dd.dropna(how='all'), num_rows="dynamic", use_container_width=True)
-            if st.button(f"💾 อัปเดตรายการ {dd_choice}"):
-                ws_dd = ss.worksheet(dd_choice)
-                ws_dd.clear()
-                ws_dd.update([edited_dd.columns.values.tolist()] + edited_dd.fillna("").astype(str).values.tolist())
-                st.success("บันทึกรายการตัวเลือกใหม่แล้ว")
+    with tabs[3]:  # Repair View
+    st.subheader("🔍 Advanced Repair Explorer")
+    
+    # ช่องค้นหาอัจฉริยะ (ค้นหาได้ทั้ง SN, WO, Model)
+    search_query = st.text_input("🔍 ค้นหา (ใส่ SN, WO หรือ Model)").strip().upper()
+    
+    df_view = df_all.copy()
+    if search_query:
+        # กรองข้อมูลโดยใช้เงื่อนไข OR (ถ้าเจอคำค้นหาในคอลัมน์ใดคอลัมน์หนึ่งให้แสดงผล)
+        df_view = df_view[
+            (df_view['sn'].astype(str).str.contains(search_query)) | 
+            (df_view['wo'].astype(str).str.contains(search_query)) | 
+            (df_view['model'].astype(str).str.contains(search_query))
+        ]
+
+    # แสดงผลรายการที่กรองแล้ว
+    st.write(f"พบข้อมูลทั้งหมด `{len(df_view)}` รายการ")
+    for _, row in df_view.iloc[::-1].head(20).iterrows():
+        with st.expander(f"📌 SN: {row['sn']} | WO: {row['wo']} | Model: {row['model']}"):
+            # ... (ใส่โค้ดแสดงรายละเอียดและรูปภาพเดิมของคุณ) ...
                 
 # ---------------- [TECHNICIAN SECTION] ----------------
 elif role == "technician":
@@ -296,53 +304,73 @@ if role == "user":
                 else:
                     st.error("กรุณากรอกข้อมูล WO, SN และอาการเสียให้ครบถ้วน")
 
-    # --- Tab 2: ติดตามสถานะงาน (แสดงรายละเอียดทั้งหมดตามที่ขอ) ---
+ # --- Tab 2: ติดตามสถานะงาน (เวอร์ชันเพิ่มตัวกรองสถานะด่วน) ---
     with u_tabs[1]:
         st.subheader("🔍 ติดตามสถานะงานซ่อม")
-        search_sn = st.text_input("🔍 ค้นหาด้วย SN ของคุณ", key="user_search_sn").strip().upper()
+        
+        # 1. ปุ่มตัวกรองสถานะด่วน (Quick Filters)
+        c_f1, c_f2, c_f3, c_f4 = st.columns(4)
+        filter_all = c_f1.button("📑 ทั้งหมด", use_container_width=True)
+        filter_pending = c_f2.button("🟡 รอซ่อม", use_container_width=True)
+        filter_process = c_f3.button("🔵 กำลังซ่อม", use_container_width=True)
+        filter_done = c_f4.button("🟢 เสร็จแล้ว", use_container_width=True)
+
+        # 2. ช่องค้นหาอัจฉริยะ
+        search_query = st.text_input("🔍 ค้นหาด้วย SN, WO หรือ Model", key="user_search_query").strip().upper()
         
         df_user = get_df("sheet1")
         if not df_user.empty:
-            # กรองให้เห็นเฉพาะงานของตัวเอง (user_id) หรือตาม SN ที่ค้นหา
-            my_jobs = df_user[df_user['user_id'] == st.session_state.user]
-            if search_sn:
-                my_jobs = df_user[df_user['sn'].astype(str).str.contains(search_sn)]
+            # เริ่มต้นด้วยงานของตัวเอง
+            my_jobs = df_user[df_user['user_id'].astype(str) == str(st.session_state.user)]
             
+            # Logic การกรองข้อมูล (Filter Logic)
+            if search_query:
+                # ถ้ามีการค้นหา ให้ค้นจากฐานข้อมูลทั้งหมด
+                my_jobs = df_user[
+                    (df_user['sn'].astype(str).str.contains(search_query)) | 
+                    (df_user['wo'].astype(str).str.contains(search_query)) | 
+                    (df_user['model'].astype(str).str.contains(search_query))
+                ]
+            
+            # กรองตามปุ่มสถานะที่กด (ถ้ามีการกดปุ่ม)
+            if filter_pending:
+                my_jobs = my_jobs[my_jobs['status'] == "Pending"]
+            elif filter_process:
+                my_jobs = my_jobs[my_jobs['status'].isin(["In Progress", "Wait Part"])]
+            elif filter_done:
+                my_jobs = my_jobs[my_jobs['status'] == "Completed"]
+
+            # 3. แสดงผลรายการ
             if not my_jobs.empty:
-                for _, row in my_jobs.iloc[::-1].iterrows():
-                    # กำหนดสีสถานะ
+                st.caption(f"💡 แสดงผลทั้งหมด {len(my_jobs)} รายการ")
+                for idx, row in my_jobs.iloc[::-1].iterrows():
                     status = row['status']
-                    st_color = "🟢" if status == "Completed" else "🟡" if status == "Pending" else "🔴"
+                    # กำหนดสีตามสถานะ
+                    st_color = "🟢" if status == "Completed" else "🟡" if status == "Pending" else "🔵"
                     
                     with st.container(border=True):
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.markdown(f"### {st_color} Status: {status}")
-                            # แสดงรายละเอียดทั้งหมดที่ต้องการ
                             st.markdown(f"""
-                            **📄 รายละเอียดข้อมูล:**
-                            * **Work Order (WO):** {row['wo']}
-                            * **Serial Number (SN):** {row['sn']}
-                            * **Model:** {row['model']}
-                            * **Product Name:** {row.get('product', '-')}
-                            * **Station:** {row['station']}
-                            * **วันที่แจ้งซ่อม:** {row['user_time']}
+                            **📄 ข้อมูลรายการ:**
+                            * **WO/Asset:** `{row['wo']}` | **SN:** `{row['sn']}`
+                            * **Model:** {row['model']} ({row.get('product', '-')})
+                            * **แจ้งเมื่อ:** {row['user_time']}
                             """)
-                            st.info(f"⚠️ **อาการที่แจ้ง:** {row['failure']}")
+                            st.info(f"⚠️ **อาการ:** {row['failure']}")
                             
-                            # หากซ่อมเสร็จแล้ว แสดงผลซ่อม
                             if status == "Completed":
-                                st.success(f"🛠️ **ผลการซ่อม:** {row.get('real_case', '-')}")
+                                st.success(f"🛠️ **ผลซ่อม:** {row.get('real_case', '-')}")
+                                st.caption(f"👨‍🔧 ช่าง: {row.get('tech_id','-')} | {row.get('tech_time','-')}")
                         
                         with col2:
-                            # แสดงรูปภาพที่แจ้งไป
                             if row.get('img_user'):
-                                st.image(f"data:image/jpeg;base64,{row['img_user']}", caption="รูปที่แจ้งซ่อม", use_container_width=True)
+                                st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
                             
-                            # ปุ่มตามงาน (Notification)
-                            if status == "Pending":
-                                if st.button(f"🔔 ตามงาน SN: {row['sn'][-4:]}", key=f"ping_{row['sn']}_{_}"):
-                                    # send_line_notification(...) # ส่งเข้ากลุ่มไลน์ช่าง
-                                    st.toast(f"ส่งสัญญาณตามงาน {row['sn']} ไปยังทีมช่างแล้ว")
+                            if status in ["Pending", "Wait Part", "In Progress"]:
+                                if st.button(f"🔔 ตามงาน", key=f"ping_btn_{idx}", use_container_width=True):
+                                    send_line_message(row['wo'], row['sn'], row['model'], "❗ ตามงานด่วน", "Re-notify", st.session_state.user)
+                                    st.toast(f"ส่งแจ้งเตือนตามงาน {row['sn']} แล้ว!")
             else:
-                st.info("ยังไม่มีประวัติการแจ้งซ่อมของคุณ")
+                st.warning("🔎 ไม่พบข้อมูลที่ตรงกับเงื่อนไข")
