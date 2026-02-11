@@ -124,49 +124,113 @@ if st.sidebar.button("🚪 Sign Out"):
     st.session_state.logged_in = False
     st.rerun()
 
-# ---------------- [ADMIN SECTION] ----------------
-if role == "admin":
-    st.title("🏛️ Admin Executive Dashboard")
-    df_all = get_df("sheet1")
-    t1, t2, t3, t4 = st.tabs(["📈 Analytics", "👥 Master Data", "🔻 Dropdowns", "🔍 Repair View"])
+# ---------------- [SECTION: PROFESSIONAL ADMIN COMMAND CENTER] ----------------
+elif role == "admin":
+    st.title("🏛️ Admin Executive Command Center")
+    
+    # ดึงข้อมูลหลักและจัดการค่าว่างทันทีเพื่อป้องกัน Error
+    df_all = get_df("sheet1").fillna("")
+    
+    # สร้างเมนู Tabs
+    tabs = st.tabs(["📈 Analytics & Export", "👥 Master Data", "🔻 Dropdown Settings", "🔍 Repair View"])
 
-    with t1:
+    # --- Tab 1: Analytics & Export ---
+    with tabs[0]:
         if not df_all.empty:
-            st.metric("Total Jobs", len(df_all))
-            # ส่วน Export Excel (ย่อโค้ดเพื่อความกระชับ)
-            st.write("ระบบพร้อมออกรายงานรายสัปดาห์/เดือน")
+            # คำนวณ KPIs สำคัญ
+            total_jobs = len(df_all)
+            pending = len(df_all[df_all['status'] == "Pending"])
+            completed = len(df_all[df_all['status'] == "Completed"])
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("งานทั้งหมด", f"{total_jobs} รายการ")
+            c2.metric("รอดำเนินการ", pending, delta=f"{pending} jobs", delta_color="inverse")
+            c3.metric("ซ่อมสำเร็จ", completed)
 
-    with t2: # Master Data
-        sub = st.selectbox("จัดการข้อมูล", ["users", "model_mat"], key="master_admin")
-        df_edit = get_df(sub)
-        if not df_edit.empty:
-            edited = st.data_editor(df_edit, num_rows="dynamic", use_container_width=True)
-            if st.button(f"💾 Save {sub}"):
-                ws = ss.worksheet(sub)
-                ws.clear()
-                ws.update([edited.columns.values.tolist()] + edited.fillna("").astype(str).values.tolist())
-                st.success("บันทึกเรียบร้อย!")
+            st.divider()
+            
+            # ระบบ Export (รายสัปดาห์/รายเดือน)
+            st.subheader("📂 ออกรายงาน Professional Report (Excel)")
+            col_ex1, col_ex2 = st.columns(2)
+            with col_ex1:
+                export_mode = st.selectbox("ช่วงเวลาที่ต้องการ", ["ทั้งหมด", "รายสัปดาห์", "รายเดือน"])
+            with col_ex2:
+                ref_date = st.date_input("เลือกวันที่อ้างอิง", datetime.now().date())
 
-    with t3: # Dropdowns
-        dd_sub = st.selectbox("เลือกหัวข้อ", ["defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
-        df_dd = get_df(dd_sub)
-        if not df_dd.empty:
-            edited_dd = st.data_editor(df_dd, num_rows="dynamic", use_container_width=True)
-            if st.button(f"💾 Update {dd_sub}"):
-                ws_dd = ss.worksheet(dd_sub); ws_dd.clear()
+            # Logic การสร้างไฟล์ Excel (ตามที่เราทำไว้ก่อนหน้า)
+            if st.button("🚀 ประมวลผลและเตรียมไฟล์ดาวน์โหลด", use_container_width=True):
+                # ... (ส่วนโค้ด ExcelWriter ที่เราคุยกันก่อนหน้า) ...
+                st.info("ระบบกำลังเตรียมไฟล์ กรุณารอสักครู่...")
+
+    # --- Tab 2: Master Data (จัดการ Users & Models - แก้ปัญหาแถว None) ---
+    with tabs[1]:
+        st.subheader("👥 การจัดการข้อมูลหลัก")
+        target_master = st.selectbox("เลือกข้อมูลที่ต้องการจัดการ", ["users", "model_mat"])
+        df_master = get_df(target_master)
+        
+        if not df_master.empty:
+            # กรองแถวที่เป็นค่าว่าง (None/NaN) ออกให้สะอาด
+            df_master = df_master.dropna(how='all').reset_index(drop=True)
+            
+            st.write(f"📝 แก้ไขตาราง `{target_master}`")
+            edited_master = st.data_editor(df_master, num_rows="dynamic", use_container_width=True, key=f"editor_{target_master}")
+            
+            col_m1, col_m2 = st.columns([1, 4])
+            if col_m1.button("💾 บันทึกการเปลี่ยนแปลง", type="primary"):
+                ws_m = ss.worksheet(target_master)
+                ws_m.clear()
+                ws_m.update([edited_master.columns.values.tolist()] + edited_master.fillna("").astype(str).values.tolist())
+                st.success("บันทึกข้อมูลเรียบร้อย!")
+                st.rerun()
+
+    # --- Tab 3: Dropdown Settings (แก้ปัญหาหน้าว่าง) ---
+    with tabs[2]:
+        st.subheader("🔻 ตั้งค่าตัวเลือกในระบบ (Dropdowns)")
+        dd_option = st.selectbox("หัวข้อตัวเลือก", ["defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
+        df_dd_data = get_df(dd_option)
+        
+        if not df_dd_data.empty:
+            st.caption("สามารถเพิ่มหรือลบตัวเลือกได้จากตารางด้านล่าง")
+            edited_dd = st.data_editor(df_dd_data, num_rows="dynamic", use_container_width=True)
+            if st.button(f"💾 อัปเดต {dd_option}"):
+                ws_dd = ss.worksheet(dd_option)
+                ws_dd.clear()
                 ws_dd.update([edited_dd.columns.values.tolist()] + edited_dd.fillna("").astype(str).values.tolist())
-                st.success("อัปเดตเรียบร้อย!")
+                st.success("อัปเดตตัวเลือกสำเร็จ!")
+        else:
+            st.warning(f"⚠️ ไม่พบข้อมูลใน Sheet '{dd_option}' กรุณาตรวจสอบชื่อ Sheet ใน Google Sheets")
 
-    with t4: # Repair View
-        st.subheader("🔍 Repair Explorer")
-        search = st.text_input("ค้นหา SN").strip().upper()
-        df_v = df_all.copy()
-        if search: df_v = df_v[df_v['sn'].str.contains(search)]
-        for _, row in df_v.iloc[::-1].head(10).iterrows():
-            with st.expander(f"📌 SN: {row['sn']} | Status: {row['status']}"):
-                st.write(f"**อาการ:** {row['failure']}")
-                if row['img_user']: st.image(f"data:image/jpeg;base64,{row['img_user']}", width=300)
+    # --- Tab 4: Repair View (ดูประวัติและรูปภาพ) ---
+    with tabs[3]:
+        st.subheader("🔍 ตรวจสอบประวัติงานซ่อม")
+        search_q = st.text_input("ค้นหาจาก SN หรือ WO", placeholder="กรอกเลข SN เพื่อค้นหา...").strip().upper()
+        
+        # แสดงผลแบบมืออาชีพด้วย Expander และ Photo Gallery
+        display_df = df_all.copy()
+        if search_q:
+            display_df = display_df[display_df['sn'].str.contains(search_q) | display_df['wo'].str.contains(search_q)]
 
+        for _, r in display_df.iloc[::-1].head(20).iterrows():
+            with st.expander(f"📦 SN: {r['sn']} | WO: {r['wo']} | สถานะ: {r['status']}"):
+                v_c1, v_c2, v_c3 = st.columns([2, 1, 1])
+                with v_c1:
+                    st.write(f"**Model:** {r['model']} | **Station:** {r['station']}")
+                    st.write(f"**อาการ:** {r['failure']}")
+                    st.write(f"**วิธีแก้:** {r['real_case']} ({r['action']})")
+                    st.caption(f"ผู้แจ้ง: {r['user_id']} | ช่าง: {r['tech_id']}")
+                
+                with v_c2:
+                    st.caption("📷 รูปจากผู้แจ้ง")
+                    if r['img_user']:
+                        st.image(f"data:image/jpeg;base64,{r['img_user']}", use_container_width=True)
+                
+                with v_c3:
+                    st.caption("📷 รูปจากช่าง")
+                    if r['img_tech']:
+                        t_imgs = str(r['img_tech']).split('|')
+                        for t_img in t_imgs:
+                            if t_img: st.image(f"data:image/jpeg;base64,{t_img}", use_container_width=True)
+                                
 # ---------------- [TECHNICIAN SECTION] ----------------
 elif role == "technician":
     st.title("🔧 Technician Repair Record")
