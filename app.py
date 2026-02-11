@@ -132,7 +132,8 @@ if role == "admin":
     # จัดลำดับ Tabs: Analytics -> Repair View -> Master Data -> Dropdown
     tabs = st.tabs(["📈 Analytics", "🔍 Repair View", "👥 Master Data", "🔻 Dropdowns"])
 
-    with tabs[0]: # Analytics & Export
+    # --- Tab 1: Analytics & Export ---
+    with tabs[0]: 
         if not df_all.empty:
             t1, t2, t3 = st.columns(3)
             t1.metric("งานทั้งหมด", len(df_all))
@@ -140,6 +141,7 @@ if role == "admin":
             t3.metric("เสร็จแล้ว", len(df_all[df_all['status'] == "Completed"]))
             
             st.divider()
+            # ตัดคอลัมน์รูปภาพออกเพื่อให้ไฟล์ Excel ขนาดเล็กลง
             df_report = df_all.drop(columns=['img_user', 'img_tech'], errors='ignore')
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
@@ -147,8 +149,9 @@ if role == "admin":
             st.download_button("📥 Download Excel Report", data=buffer.getvalue(), 
                                file_name=f"Repair_{datetime.now().date()}.xlsx", type="primary")
 
-    with tabs[1]: # Repair View (หน้าแสดงรายละเอียดทั้งหมด)
-        st.subheader("🔍 ตรวจสอบรายละเอียดงานซ่อม")
+    # --- Tab 2: Repair View (Compact Mode - ซ่อนรูปภาพ) ---
+    with tabs[1]:
+        st.subheader("🔍 ตรวจสอบรายละเอียดงานซ่อม (Compact)")
         q_search = st.text_input("ค้นหา SN, WO หรือ Model", key="adm_search").strip().upper()
         
         df_view = df_all.copy()
@@ -158,45 +161,41 @@ if role == "admin":
                              df_view['model'].astype(str).str.contains(q_search)]
 
         if not df_view.empty:
-            for idx, row in df_view.iloc[::-1].iterrows():
+            for idx, row in df_view.iloc[::-1].head(30).iterrows(): # แสดง 30 รายการล่าสุด
                 st_color = "🟢" if row['status'] == "Completed" else "🟡"
                 with st.expander(f"{st_color} SN: {row['sn']} | WO: {row['wo']} | {row['status']}"):
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    with c1:
-                        st.markdown(f"""
-                        **📋 รายละเอียดงาน:**
-                        * **🔢 Work Order:** `{row['wo']}`
-                        * **🆔 Serial Number:** `{row['sn']}`
-                        * **📟 Model:** {row['model']}
-                        * **📦 Product Name:** {row.get('product', '-')}
-                        * **📍 Station:** {row['station']}
-                        * **📅 วันที่แจ้ง:** {row['user_time']}
-                        * **⚠️ อาการเสีย:** `{row['failure']}`
-                        ---
-                        **🛠️ ผลการซ่อม:** {row.get('real_case', 'กำลังดำเนินการ')}
-                        """)
-                    with c2:
-                        st.caption("📷 รูปแจ้งซ่อม")
-                        if row.get('img_user'):
-                            st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
-                    with c3:
-                        st.caption("📷 รูปงานซ่อม")
-                        if row.get('img_tech'):
-                            for img in str(row['img_tech']).split('|'):
-                                if img: st.image(f"data:image/jpeg;base64,{img}", use_container_width=True)
+                    # แสดงข้อมูลเป็น Text เท่านั้นเพื่อความเร็ว
+                    st.markdown(f"""
+                    **📄 รายละเอียด:**
+                    * **Model:** {row['model']} | **Product:** {row.get('product', '-')}
+                    * **Station:** {row['station']} | **โดย:** {row['user_id']}
+                    * **แจ้งเมื่อ:** {row['user_time']}
+                    * **⚠️ อาการเสีย:** `{row['failure']}`
+                    """)
+                    if row['status'] == "Completed":
+                        st.success(f"🛠️ **ผลซ่อม:** {row.get('real_case', '-')}")
+        else:
+            st.warning("ไม่พบข้อมูลงานซ่อม")
 
-    with tabs[2]: # Master Data
+    # --- Tab 3: Master Data (จัดการ Users/Models แบบไม่มีแถว None) ---
+    with tabs[2]:
         st.subheader("👥 Manage Master Data")
         m_sub = st.selectbox("เลือกตาราง", ["users", "model_mat"])
+        # กรองแถวที่เป็น None/Empty ทิ้งก่อนแสดงผล
         df_m = get_df(m_sub).dropna(how='all')
+        
         edited = st.data_editor(df_m, num_rows="dynamic", use_container_width=True)
-        if st.button(f"💾 Save {m_sub}"):
+        if st.button(f"💾 Save {m_sub}", type="primary"):
             ws = ss.worksheet(m_sub)
             ws.clear()
-            ws.update([edited.columns.values.tolist()] + edited.fillna("").astype(str).values.tolist())
-            st.success("บันทึกข้อมูลแล้ว!")
+            # กรองค่าว่างอีกครั้งก่อนบันทึก
+            clean_df = edited.dropna(how='all').fillna("").astype(str)
+            ws.update([clean_df.columns.values.tolist()] + clean_df.values.tolist())
+            st.success(f"บันทึกข้อมูล {m_sub} สำเร็จ!")
+            st.rerun()
 
-    with tabs[3]: # Dropdowns
+    # --- Tab 4: Dropdowns ---
+    with tabs[3]:
         st.subheader("🔻 Dropdown Settings")
         dd_sub = st.selectbox("เลือกตัวเลือก", ["defect_dropdowns", "action_dropdowns", "classification_dropdowns"])
         df_dd = get_df(dd_sub).dropna(how='all')
@@ -205,7 +204,7 @@ if role == "admin":
             ws_dd = ss.worksheet(dd_sub)
             ws_dd.clear()
             ws_dd.update([edited_dd.columns.values.tolist()] + edited_dd.fillna("").astype(str).values.tolist())
-            st.success("อัปเดตตัวเลือกแล้ว!")
+            st.success("อัปเดตสำเร็จ!")
 
 # ---------------- [SECTION: TECHNICIAN] ----------------
 elif role == "technician":
@@ -239,12 +238,12 @@ elif role == "technician":
         else:
             st.warning("ไม่พบ SN นี้ในรายการแจ้งซ่อม")
 
-# ---------------- [SECTION: USER] ----------------
-elif role == "user":
+# ---------------- [SECTION: USER - REPORT & TRACKING] ----------------
+if role == "user":
     st.title("📋 PCBA Repair Reporting")
     u_tabs = st.tabs(["📝 New Request", "🔍 My Tracking"])
     
-    with u_tabs[0]: # แจ้งซ่อม
+    with u_tabs[0]: # แจ้งซ่อมใหม่
         with st.form("repair_form", clear_on_submit=True):
             st.subheader("บันทึกข้อมูลการแจ้งซ่อม")
             c1, c2 = st.columns(2)
@@ -254,43 +253,51 @@ elif role == "user":
                 model = st.selectbox("Model", get_dropdown_options("model_mat"))
             with c2:
                 product = st.text_input("Product Name")
-                station = st.text_input("Station / Line")
+                # AUTO STATION: ดึงค่าจาก session_state ที่ได้ตอน Login
+                user_station = st.session_state.get('station', 'General')
+                st.info(f"📍 Station: {user_station}") 
                 failure = st.text_area("Symptom / อาการเสีย")
-            uploaded_file = st.file_uploader("แนบรูปภาพอาการเสีย", type=['jpg', 'jpeg', 'png'])
+            
+            # ซ่อนส่วน Upload รูปภาพ (หรือเอาออกหากไม่ต้องการใช้งานแล้ว)
+            # uploaded_file = st.file_uploader("แนบรูปภาพอาการเสีย", type=['jpg', 'jpeg', 'png'])
             
             if st.form_submit_button("🚀 Submit Request", use_container_width=True):
                 if wo and sn and failure:
-                    # ใส่ฟังก์ชัน save_to_sheets เดิมของคุณตรงนี้
-                    st.success("ส่งข้อมูลแจ้งซ่อมเรียบร้อยแล้ว!")
+                    # Logic บันทึกข้อมูล (ต้องส่ง user_station ไปบันทึกด้วย)
+                    st.success(f"ส่งข้อมูลแจ้งซ่อมจาก {user_station} เรียบร้อยแล้ว!")
                 else:
-                    st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
+                    st.error("กรุณากรอกข้อมูล WO, SN และอาการเสียให้ครบถ้วน")
 
-    with u_tabs[1]: # ติดตามงาน
+    with u_tabs[1]: # ติดตามงาน (แบบซ่อนรูปภาพ)
         st.subheader("🔍 ติดตามสถานะงานซ่อม")
-        q_user = st.text_input("ค้นหา SN/WO ของคุณ", key="u_search").strip().upper()
-        df_u = get_df("sheet1")
-        if not df_u.empty:
-            my_jobs = df_u[df_u['user_id'].astype(str) == str(st.session_state.user)]
-            if q_user:
-                my_jobs = my_jobs[my_jobs['sn'].astype(str).str.contains(q_user) | 
-                                 my_jobs['wo'].astype(str).str.contains(q_user)]
+        
+        # ค้นหาและกรองสถานะ
+        search_query = st.text_input("🔍 ค้นหาด้วย SN หรือ WO", key="u_search").strip().upper()
+        
+        df_user = get_df("sheet1")
+        if not df_user.empty:
+            my_jobs = df_user[df_user['user_id'].astype(str) == str(st.session_state.user)]
             
-            for idx, row in my_jobs.iloc[::-1].iterrows():
-                status = row['status']
-                st_color = "🟢" if status == "Completed" else "🟡"
-                with st.container(border=True):
-                    col_t, col_i = st.columns([3, 1])
-                    with col_t:
-                        st.markdown(f"### {st_color} Status: {status}")
-                        st.markdown(f"""
-                        * **WO:** `{row['wo']}` | **SN:** `{row['sn']}`
-                        * **Model:** {row['model']} | **Product:** {row.get('product', '-')}
-                        * **Station:** {row['station']} | **วันที่:** {row['user_time']}
-                        """)
-                        st.info(f"⚠️ อาการ: {row['failure']}")
-                        if status in ["Pending", "In Progress"]:
-                            if st.button(f"🔔 ตามงาน SN: {row['sn'][-4:]}", key=f"p_{idx}"):
-                                st.toast("แจ้งเตือนช่างแล้ว!")
-                    with col_i:
-                        if row.get('img_user'):
-                            st.image(f"data:image/jpeg;base64,{row['img_user']}", use_container_width=True)
+            if search_query:
+                my_jobs = my_jobs[my_jobs['sn'].astype(str).str.contains(search_query) | 
+                                 my_jobs['wo'].astype(str).str.contains(search_query)]
+
+            if not my_jobs.empty:
+                for idx, row in my_jobs.iloc[::-1].iterrows():
+                    status = row['status']
+                    st_color = "🟢" if status == "Completed" else "🟡" if status == "Pending" else "🔵"
+                    
+                    # แสดงผลแบบกะทัดรัด (Compact Container)
+                    with st.container(border=True):
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            # แสดงข้อมูลเป็นบรรทัดเดียวเพื่อประหยัดพื้นที่
+                            st.markdown(f"**{st_color} Status: {status}** | **WO:** `{row['wo']}` | **SN:** `{row['sn']}`")
+                            st.caption(f"📦 {row['model']} ({row.get('product','-')}) | 📅 {row['user_time']}")
+                            st.markdown(f"⚠️ **อาการ:** {row['failure']}")
+                        with col2:
+                            if status in ["Pending", "Wait Part"]:
+                                if st.button(f"🔔 ตามงาน", key=f"ping_{idx}", use_container_width=True):
+                                    st.toast(f"ส่งสัญญาณตามงาน {row['sn']} แล้ว!")
+            else:
+                st.warning("🔎 ไม่พบข้อมูลที่ตรงกับเงื่อนไข")
