@@ -2,7 +2,8 @@ streamlit
 pandas
 gspread
 oauth2client
-plotly
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
 Pillow
 requests
-xlsxwriter
