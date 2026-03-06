@@ -17,7 +17,7 @@ SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
 
 # --- 1. CONNECTION SETUP ---
 @st.cache_resource
-def init_all_connections():
+def init_connections():
     try:
         creds_dict = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -26,62 +26,62 @@ def init_all_connections():
         spreadsheet = client.open_by_key(SHEET_ID)
         drive_service = build('drive', 'v3', credentials=creds)
         return spreadsheet, drive_service, True
-    except Exception as e:
-        return None, None, False
+    except: return None, None, False
 
-ss, drive_service, conn_status = init_all_connections()
+ss, drive_service, conn_status = init_connections()
 
-# --- 2. CORE FUNCTIONS ---
+# --- 2. CORE HELPERS ---
 def upload_to_drive(file, file_name):
-    """อัปโหลดรูปภาพต้นฉบับไปที่ Drive (ความชัด 85%)"""
+    if not file: return ""
     try:
-        img = Image.open(file)
-        img.thumbnail((1200, 1200)) 
+        img = Image.open(file).convert('RGB')
+        img.thumbnail((1200, 1200))
         buf = io.BytesIO()
-        img.convert('RGB').save(buf, format="JPEG", quality=85)
+        img.save(buf, format="JPEG", quality=85)
         buf.seek(0)
         file_metadata = {'name': file_name, 'parents': [DRIVE_FOLDER_ID]}
         media = MediaIoBaseUpload(buf, mimetype='image/jpeg', resumable=True)
-        file_drive = drive_service.files().create(body=file_metadata, media_body=media, fields='webViewLink').execute()
-        return file_drive.get('webViewLink')
+        return drive_service.files().create(body=file_metadata, media_body=media, fields='webViewLink').execute().get('webViewLink')
     except: return ""
 
-def get_data(sheet_name):
+def get_clean_df(sheet_name):
     try:
         ws = ss.worksheet(sheet_name)
-        return pd.DataFrame(ws.get_all_records()).fillna("")
+        df = pd.DataFrame(ws.get_all_records())
+        df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+        return df.fillna("")
     except: return pd.DataFrame()
 
-# --- 3. LOGIN SYSTEM ---
+# --- 3. LOGIN INTERFACE ---
 if 'login' not in st.session_state: st.session_state.login = False
 
 if not st.session_state.login:
     st.title("🔐 Repair System Login")
     with st.form("login_form"):
-        user = st.text_input("Username").strip()
-        pwd = st.text_input("Password", type="password").strip()
+        u = st.text_input("Username").strip()
+        p = st.text_input("Password", type="password").strip()
         if st.form_submit_button("Login"):
-            df_u = get_data("users")
-            match = df_u[(df_u['username'].astype(str) == user) & (df_u['password'].astype(str) == pwd)]
+            df_u = get_clean_df("users")
+            match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
             if not match.empty:
-                st.session_state.update({"login": True, "user": user, "role": match.iloc[0]['role']})
+                st.session_state.update({"login": True, "user": u, "role": match.iloc[0]['role']})
                 st.rerun()
-            else: st.error("ข้อมูลไม่ถูกต้อง")
+            else: st.error("Invalid credentials")
     st.stop()
 
-# --- 4. INTERFACE BY ROLE ---
-role = st.session_state.role
-st.sidebar.info(f"👤 {st.session_state.user} | Role: {role}")
+# --- 4. DASHBOARD LOGIC BY ROLE ---
+role = st.session_state.role.lower()
+st.sidebar.markdown(f"### 👤 {st.session_state.user}\n**Role:** {role.upper()}")
 if st.sidebar.button("Log out"):
     st.session_state.login = False
     st.rerun()
 
-# --- [SECTION: USER] ---
+# --- SECTION: USER (PCBA & MACHINE) ---
 if role == "user":
-    st.header("📋 แจ้งซ่อมใหม่ (User)")
-    repair_type = st.radio("ประเภทงานเสีย", ["PCBA", "Machine"], horizontal=True)
+    st.header("📋 New Repair Request")
+    type_choice = st.radio("Select Type", ["PCBA", "Machine"], horizontal=True)
     
-    with st.form("user_form", clear_on_submit=True):
+    with st.form("user_request", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
             wo = st.text_input("Work Order (WO)")
@@ -89,80 +89,66 @@ if role == "user":
             sn = st.text_input("Serial Number (SN)")
         with c2:
             station = st.selectbox("Station", ["SMT", "DIP", "FCT", "Packing", "Machine Area"])
-            defect = st.text_area("อาการเสีย (Defect)")
-            img_file = st.file_uploader("แนบรูปภาพอาการเสีย", type=['jpg','png','jpeg'])
+            defect = st.text_area("Defect Detail")
+            img = st.file_uploader("Upload Defect Image", type=['jpg','png','jpeg'])
             
-        if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
-            if all([wo, sn, defect]):
-                with st.spinner("กำลังบันทึก..."):
-                    img_url = upload_to_drive(img_file, f"USER_{sn}.jpg") if img_file else ""
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # บันทึก: Type, Time, WO, Model, SN, Station, Defect, Image, Status
-                    ss.worksheet("sheet1").append_row([repair_type, now, wo, model, sn, station, defect, img_url, "Pending"])
-                    st.success("ส่งข้อมูลสำเร็จ!")
-            else: st.warning("กรุณากรอกข้อมูลให้ครบ")
+        if st.form_submit_button("Submit Request"):
+            if wo and sn and defect:
+                with st.spinner("Uploading..."):
+                    img_url = upload_to_drive(img, f"REQ_{sn}.jpg")
+                    ws = ss.worksheet("sheet1")
+                    # Append: type, time, wo, model, sn, station, defect, img, status
+                    ws.append_row([type_choice, datetime.now().strftime("%Y-%m-%d %H:%M"), wo, model, sn, station, defect, img_url, "Pending"])
+                    st.success(f"{type_choice} Request Sent!")
+            else: st.error("Please fill all required fields.")
 
-# --- [SECTION: TECH] ---
+# --- SECTION: TECH (STRINGING USER DATA) ---
 elif role == "tech":
-    st.header("🔧 บันทึกการซ่อม (Technician)")
-    repair_type = st.radio("เลือกประเภทงานที่ต้องการซ่อม", ["PCBA", "Machine"], horizontal=True)
+    st.header("🔧 Technician Action Center")
+    type_filter = st.radio("View Tasks For", ["PCBA", "Machine"], horizontal=True)
     
-    target_sn = st.text_input("🔍 ค้นหา Serial Number เพื่อดำเนินการ").upper()
-    if target_sn:
-        df = get_data("sheet1")
-        # กรองข้อมูลที่ยังไม่เสร็จและตรงกับ Type
-        job = df[(df['sn'].astype(str) == target_sn) & (df['status'] != "Completed")].tail(1)
+    search_sn = st.text_input("🔍 Search Serial Number (SN)").strip()
+    if search_sn:
+        df = get_clean_df("sheet1")
+        # Filter for active jobs of specific type
+        job = df[(df['serial_number'].astype(str) == search_sn) & (df['category'].astype(str) == type_filter) & (df['status'] != "Completed")].tail(1)
         
         if not job.empty:
-            st.markdown("### 📋 ข้อมูลจาก User")
-            st.write(f"**WO:** {job.iloc[0]['wo']} | **Model:** {job.iloc[0]['model']} | **Station:** {job.iloc[0]['station']}")
-            st.info(f"**อาการเสีย:** {job.iloc[0]['defect']}")
-            if job.iloc[0]['user_image']: st.image(job.iloc[0]['user_image'], caption="รูปจาก User", width=400)
+            st.success(f"Task Found for {type_filter}")
+            st.info(f"**User Data:** WO: {job.iloc[0]['work_order']} | Model: {job.iloc[0]['model']} | Defect: {job.iloc[0]['failure']}")
+            if job.iloc[0].get('image'): st.image(job.iloc[0]['image'], width=300)
             
-            st.divider()
-            with st.form("tech_action_form"):
-                st.subheader("🛠️ Tech Action")
-                real_case = st.text_input("Real Case (สาเหตุที่แท้จริง)")
-                remark = st.text_area("Remark (หมายเหตุการซ่อม)")
-                tech_img = st.file_uploader("แนบรูปหลังการซ่อม (Tech Image)", type=['jpg','png','jpeg'])
+            with st.form("tech_action"):
+                st.subheader("🛠️ Record Action")
+                real_case = st.text_input("Real Case")
+                remark = st.text_area("Remark")
+                action_img = st.file_uploader("Upload Action Image", type=['jpg','png','jpeg'])
                 
-                # ฟังก์ชันพิเศษส่งต่อ PCBA
-                fwd_pcba = False
-                if repair_type == "PCBA":
-                    fwd_pcba = st.checkbox("ส่งต่อให้ Tech PCBA (กรณีซ่อมไม่จบ)")
+                # Logic for Forwarding PCBA
+                fwd_loop = False
+                if type_filter == "PCBA":
+                    fwd_loop = st.checkbox("Forward to Tech PCBA (Re-Repair Loop)")
 
-                if st.form_submit_button("💾 บันทึกและปิดงาน"):
-                    idx = df[df['sn'].astype(str) == target_sn].index[-1] + 2
+                if st.form_submit_button("Save & Close Task"):
+                    idx = df[df['serial_number'].astype(str) == search_sn].index[-1] + 2
                     ws = ss.worksheet("sheet1")
-                    img_tech_url = upload_to_drive(tech_img, f"TECH_{target_sn}.jpg") if tech_img else ""
+                    img_link = upload_to_drive(action_img, f"TECH_{search_sn}.jpg")
                     
-                    # อัปเดตข้อมูล Tech (คอลัมน์ I, J, K, L, M ตามลำดับใน Sheet)
-                    now_tech = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    status_final = "Completed" if not fwd_pcba else "Pending (Fwd)"
-                    
-                    ws.update(f'H{idx}:L{idx}', [[status_final, real_case, remark, img_tech_url, now_tech]])
-                    st.success("บันทึกผลการซ่อมเรียบร้อย!")
-                    if fwd_pcba: st.warning("ส่งต่อข้อมูลไปยังแผนก PCBA เรียบร้อย")
-        else: st.error("ไม่พบข้อมูล SN นี้ในระบบที่รอซ่อม")
+                    status = "Pending (Fwd)" if fwd_loop else "Completed"
+                    # Update columns: Status(I), RealCase(K), Remark(P), Image(S), Time(Q) - Adjust mapping to your sheet
+                    ws.update(f'I{idx}', [[status]])
+                    ws.update(f'K{idx}', [[real_case]])
+                    ws.update(f'P{idx}', [[remark]])
+                    ws.update(f'Q{idx}', [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
+                    st.success("Action Recorded!")
+        else: st.error("No active task found for this SN.")
 
-# --- [SECTION: ADMIN / SUPER ADMIN] ---
+# --- SECTION: ADMIN & SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
-    st.title(f"🚀 {role.upper()} Management")
-    tabs = st.tabs(["📊 Dashboard", "⚙️ Manage Master Data", "👥 User Control"])
+    st.header("🏛️ Management Dashboard")
+    df_all = get_clean_df("sheet1")
+    st.dataframe(df_all, use_container_width=True)
     
-    with tabs[0]:
-        df = get_data("sheet1")
-        st.subheader("Repair Data Overview")
-        st.dataframe(df, use_container_width=True)
-        # ตัวอย่างกราฟ
-        if not df.empty:
-            st.bar_chart(df['status'].value_counts())
-
-    with tabs[1]:
-        st.subheader("Manage Models & Stations")
-        # โค้ดสำหรับ Admin แก้ไข Master Data (เช่น model_mat)
-        
     if role == "super admin":
-        with tabs[2]:
-            st.subheader("User Account Management")
-            # โค้ดสำหรับ Super Admin จัดการบัญชีผู้ใช้
+        st.subheader("🔑 System Configuration (Super Admin Only)")
+        st.write("Full control over Users and Master Data tables.")
