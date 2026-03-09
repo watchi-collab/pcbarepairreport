@@ -24,7 +24,9 @@ def init_all():
         spreadsheet = client.open_by_key(SHEET_ID)
         drive_service = build('drive', 'v3', credentials=creds)
         return spreadsheet, drive_service, True
-    except: return None, None, False
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return None, None, False
 
 ss, drive_service, conn_status = init_all()
 
@@ -50,15 +52,16 @@ def upload_multiple_images(files, prefix, sn):
             f_name = f"{prefix}_{sn}_{datetime.now().strftime('%H%M%S')}_{i+1}.jpg"
             f_meta = {'name': f_name, 'parents': [DRIVE_FOLDER_ID]}
             media = MediaIoBaseUpload(buf, mimetype='image/jpeg', resumable=True)
-            f_drive = drive_service.files().create(body=f_meta, media_body=media, fields='webViewLink').execute()
-            urls.append(file_drive.get('webViewLink'))
+            file_drive = drive_service.files().create(body=f_meta, media_body=media, fields='webViewLink').execute()
+            if file_drive:
+                urls.append(file_drive.get('webViewLink'))
         except: continue
     return ",".join(urls)
 
 # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
-    st.title("🛠️ Repair System 2026 (Smart Mapping)")
+    st.title("🛠️ Repair System 2026")
     with st.form("auth_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
@@ -83,101 +86,98 @@ if role == "user":
     st.header("📋 New Repair Ticket")
     category = st.radio("Category", ["PCBA", "Machine"], horizontal=True)
 
-    # ดึงข้อมูล Master Model
+    # Smart Mapping Logic
     df_master = get_clean_df("model_mat")
     model_list = df_master['model'].tolist() if not df_master.empty else []
 
     with st.form("user_entry_form"):
         c1, c2 = st.columns(2)
         with c1:
-            # ใช้ Selectbox หรือ Text input ที่ตรวจสอบ Model
             input_model = st.selectbox("Select Model", [""] + model_list)
-            
-            # Smart Mapping: ค้นหา Product Name จาก Model ที่เลือก
+            # ดึงค่า Product Name มาแสดง
             auto_prod = ""
-            if input_model:
-                match_prod = df_master[df_master['model'] == input_model]['product_name']
-                if not match_prod.empty:
-                    auto_prod = match_prod.iloc[0]
+            if input_model and not df_master.empty:
+                match = df_master[df_master['model'] == input_model]
+                if not match.empty:
+                    auto_prod = match.iloc[0]['product_name']
             
-            # แสดงค่าที่ผูกกัน (Disabled ให้ User ดูอย่างเดียว หรือ Text Input ปกติ)
-            product_name = st.text_input("Product Name (Auto-fill)", value=auto_prod)
+            product_name = st.text_input("Product Name (Auto)", value=auto_prod, disabled=True)
             wo = st.text_input("Work Order (WO)")
             
         with c2:
             sn = st.text_input("Serial Number (SN)").upper()
-            station = st.selectbox("Station", ["SMT", "DIP", "FCT", "Main Line", "Maintenance"])
+            # ปรับ Station ตามหมวดหมู่
+            st_list = ["SMT", "DIP", "FCT"] if category == "PCBA" else ["Line 1", "Line 2", "Utility"]
+            station = st.selectbox("Station", st_list)
             defect = st.text_area("Defect Detail")
         
-        user_files = st.file_uploader("📸 Upload Photos", accept_multiple_files=True)
+        user_files = st.file_uploader("📸 Upload Photos (Multiple)", accept_multiple_files=True)
         
         if st.form_submit_button("🚀 Submit Request"):
             if input_model and sn and defect:
-                with st.spinner("Saving..."):
+                with st.spinner("Recording data and images..."):
                     img_links = upload_multiple_images(user_files, f"REQ_{category}", sn)
                     ws = ss.worksheet("sheet1")
                     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # คอลัมน์ A:category, B:status, C:wo, D:model, E:product_name, F:sn, G:station, H:failure, I:time
-                    row = [category, "Pending", wo, input_model, product_name, sn, station, defect, now]
+                    # คอลัมน์ A-I
+                    row = [category, "Pending", wo, input_model, auto_prod, sn, station, defect, now]
+                    # เพิ่มช่องว่างสำหรับ J-O แล้วใส่รูปที่ P
                     ws.append_row(row + ([""] * 6) + [img_links])
-                    st.success("บันทึกข้อมูลเรียบร้อย!")
-            else: st.warning("Please fill required fields (Model, SN, Defect)")
+                    st.success("แจ้งซ่อมสำเร็จ!")
+            else: st.warning("Please fill Model, SN, and Defect")
 
 # --- [SECTION: TECH] ---
 elif role == "tech":
     st.header("🔧 Technician Action Center")
-    # Tech เลือกกรองดูงานตามความถนัด
-    view_mode = st.radio("ดูคิวงานประเภท:", ["PCBA", "Machine"], horizontal=True)
+    view_mode = st.radio("ประเภทงาน:", ["PCBA", "Machine"], horizontal=True)
+    search_sn = st.text_input(f"🔍 Scan SN ({view_mode})").strip().upper()
     
-    search_sn = st.text_input(f"🔍 Scan SN ({view_mode}) เพื่อซ่อม").strip().upper()
     if search_sn:
         df = get_clean_df("sheet1")
-        # กรองงานที่ตรงทั้ง SN และ Category และยังไม่เสร็จ
+        # กรองงาน (ใช้ชื่อคอลัมน์ที่ถูก clean แล้ว)
         job = df[(df['serial_number'].astype(str) == search_sn) & 
                  (df['category'].astype(str) == view_mode) & 
                  (df['status'] != "Completed")].tail(1)
         
         if not job.empty:
-            st.success(f"พบงาน {view_mode}: {job.iloc[0]['work_order']}")
+            st.success(f"พบรายการ: {job.iloc[0]['product_name']} (Model: {job.iloc[0]['model']})")
+            
+            # Gallery Preview
             if job.iloc[0].get('user_image'):
-                st.write("🖼️ รูปจาก User:")
                 links = str(job.iloc[0]['user_image']).split(",")
-                cols = st.columns(4)
+                st.write("🖼️ ภาพจาก User:")
+                cols = st.columns(min(len(links), 4))
                 for idx, lnk in enumerate(links):
                     if lnk: cols[idx % 4].image(lnk, use_container_width=True)
 
-            with st.form("tech_action_form"):
-                real_case = st.text_input("สาเหตุ (Real Case)")
-                action = st.text_input("วิธีแก้ไข (Action)")
-                remark = st.text_area("หมายเหตุ")
-                tech_files = st.file_uploader("📸 รูปหลังซ่อม", type=['jpg','png'], accept_multiple_files=True)
+            with st.form("tech_form"):
+                real_case = st.text_input("Real Case")
+                action = st.text_input("Action")
+                remark = st.text_area("Remark")
+                tech_files = st.file_uploader("📸 รูปหลังซ่อม", accept_multiple_files=True)
                 
-                if st.form_submit_button("💾 ปิดงานซ่อม"):
-                    idx = df[df['serial_number'].astype(str) == search_sn].index[-1] + 2
-                    ws = ss.worksheet("sheet1")
-                    t_links = upload_multiple_images(tech_files, "TECH", search_sn)
-                    t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    
-                    ws.update(f'B{idx}', [['Completed']])
-                    # อัปเดตข้อมูลซ่อม J-O และ Q
-                    ws.update(f'J{idx}:O{idx}', [[real_case, action, view_mode, remark, st.session_state.user, t_now]])
-                    ws.update(f'Q{idx}', [[t_links]])
-                    st.success("บันทึกปิดงานเรียบร้อย!")
+                if st.form_submit_button("💾 บันทึกปิดงาน"):
+                    with st.spinner("Updating..."):
+                        # หาเลขแถว (+2 เพราะ index เริ่ม 0 และ Sheet มี Header)
+                        idx = df[df['serial_number'].astype(str) == search_sn].index[-1] + 2
+                        ws = ss.worksheet("sheet1")
+                        t_links = upload_multiple_images(tech_files, "TECH", search_sn)
+                        t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        ws.update(f'B{idx}', [['Completed']])
+                        ws.update(f'J{idx}:O{idx}', [[real_case, action, view_mode, remark, st.session_state.user, t_now]])
+                        ws.update(f'Q{idx}', [[t_links]])
+                        st.success("ปิดงานซ่อมเรียบร้อย!")
         else:
-            st.error(f"ไม่พบ SN นี้ในหมวด {view_mode} ที่ค้างอยู่")
+            st.error(f"ไม่พบ SN: {search_sn} ในหมวด {view_mode} ที่ยังไม่ซ่อม")
+
 # --- [SECTION: ADMIN] ---
 elif role in ["admin", "super admin"]:
     st.header("📊 Admin Dashboard")
     df = get_clean_df("sheet1")
-    
     if not df.empty:
-        # ส่วนแสดงตารางพร้อม Filter
-        st.subheader("รายการซ่อมทั้งหมด")
         st.dataframe(df, use_container_width=True)
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.plotly_chart({"data": [{"values": df['status'].value_counts(), "labels": df['status'].value_counts().index, "type": "pie"}]}) if 'status' in df else st.write("No status data")
-        with c2:
-            csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 Download Report (CSV)", data=csv, file_name=f"Report_{datetime.now().strftime('%Y%m%d')}.csv")
+        # สรุปงานแยกตาม Category
+        st.subheader("สถานะแยกตามประเภท")
+        summary = df.groupby(['category', 'status']).size().unstack().fillna(0)
+        st.bar_chart(summary)
