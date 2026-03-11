@@ -37,32 +37,14 @@ def get_clean_df(sheet_name):
         return df.fillna("")
     except: return pd.DataFrame()
 
-def upload_multiple_images(files, prefix, sn):
-    urls = []
-    if not files: return ""
-    for i, file in enumerate(files):
-        try:
-            img = Image.open(file).convert('RGB')
-            img.thumbnail((1000, 1000))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
-            buf.seek(0)
-            f_name = f"{prefix}_{sn}_{datetime.now().strftime('%H%M%S')}_{i+1}.jpg"
-            f_meta = {'name': f_name, 'parents': [DRIVE_FOLDER_ID]}
-            media = MediaIoBaseUpload(buf, mimetype='image/jpeg', resumable=True)
-            f_drive = drive_service.files().create(body=f_meta, media_body=media, fields='webViewLink').execute()
-            urls.append(f_drive.get('webViewLink'))
-        except: continue
-    return ",".join(urls)
-
 # --- 3. LOGIN WITH MODE SELECTION ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 
 if not st.session_state.is_logged_in:
     st.title("🛡️ Repair Management System")
     
-    # เพิ่มการเลือก Mode ก่อน Login
-    app_mode = st.selectbox("เลือกประเภทงานที่ต้องการเข้าบันทึก", ["PCBA", "Machine"], index=0)
+    # เลือกโหมดก่อน Login
+    app_mode = st.selectbox("เลือกประเภทงาน", ["PCBA", "Machine"], index=0)
     
     with st.form("auth_form"):
         u = st.text_input("Username").strip()
@@ -75,7 +57,7 @@ if not st.session_state.is_logged_in:
                     "is_logged_in": True, 
                     "user": u, 
                     "role": match.iloc[0]['role'].lower(),
-                    "app_mode": app_mode  # เก็บโหมดไว้ใน session
+                    "app_mode": app_mode
                 })
                 st.rerun()
             else: st.error("Login Failed")
@@ -92,63 +74,65 @@ if st.sidebar.button("Logout"):
 
 # --- [SECTION: USER] ---
 if role == "user":
-    st.header(f"📋 New Repair Request ({mode})")
+    st.header(f"📋 แจ้งซ่อมใหม่ ({mode} Reporting)")
     
-    # ดึงข้อมูลมาแสดงตาม Mode
-    df_master = get_clean_df("model_mat")
-    # สมมติว่า model_mat มีคอลัมน์ category ไว้แยก PCBA/Machine
-    df_filtered_model = df_master[df_master['category'] == mode] if 'category' in df_master.columns else df_master
-    
+    # --- Dynamic Model Loading ---
+    # หากเป็น Machine ให้ดึงจาก model_machine หากเป็น PCBA ให้ดึงจาก model_mat
+    model_sheet = "model_machine" if mode == "Machine" else "model_mat"
+    df_model_source = get_clean_df(model_sheet)
+    model_list = df_model_source['model'].tolist() if not df_model_source.empty else []
+
+    # ดึง Station จาก station_dropdowns
     df_stations = get_clean_df("station_dropdowns")
-    # กรองสถานีตาม Mode
-    df_filtered_station = df_stations[df_stations['category'] == mode] if 'category' in df_stations.columns else df_stations
+    station_list = df_stations['category'].tolist() if not df_stations.empty else []
 
     with st.form("user_entry_form"):
         c1, c2 = st.columns(2)
         with c1:
-            input_model = st.selectbox("Model", [""] + df_filtered_model['model'].tolist())
+            input_model = st.selectbox("Model Name", [""] + model_list)
+            
+            # Smart Mapping จากชีตที่เลือก
             auto_prod = ""
             if input_model:
-                match = df_filtered_model[df_filtered_model['model'] == input_model]
-                if not match.empty: auto_prod = match.iloc[0]['product_name']
+                match = df_model_source[df_model_source['model'] == input_model]
+                if not match.empty:
+                    auto_prod = match.iloc[0]['product_name']
             
-            product_name = st.text_input("Product Name", value=auto_prod, disabled=True)
-            wo = st.text_input("Work Order")
+            product_name = st.text_input("Product Name (Auto)", value=auto_prod, disabled=True)
+            wo = st.text_input("Work Order (WO)")
             
         with c2:
             sn = st.text_input("Serial Number (SN)").upper()
-            station = st.selectbox("Station", df_filtered_station['value'].tolist() if 'value' in df_filtered_station.columns else ["N/A"]) 
-            defect = st.text_area("Defect Detail")
+            station = st.selectbox("Station", station_list)
+            defect = st.text_area("อาการเสีย (Defect)")
         
-        user_files = st.file_uploader("📸 Upload Photos", accept_multiple_files=True)
-        
-        if st.form_submit_button("🚀 Submit"):
+        if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
             if input_model and sn and defect:
                 with st.spinner("Recording..."):
-                    img_links = upload_multiple_images(user_files, f"REQ_{mode}", sn)
                     ws = ss.worksheet("sheet1")
                     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # คอลัมน์ A=mode
+                    # บันทึกข้อมูลลง Sheet1 ตามลำดับหัวคอลัมน์
+                    # Category, Status, WO, Model, Product Name, SN, Station, Failure, User Time
                     row = [mode, "Pending", wo, input_model, auto_prod, sn, station, defect, now]
-                    ws.append_row(row + ([""] * 6) + [img_links])
-                    st.success(f"บันทึกข้อมูล {mode} สำเร็จ!")
+                    ws.append_row(row)
+                    st.success(f"บันทึกข้อมูลหมวด {mode} เรียบร้อย!")
+            else:
+                st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+
 # --- [SECTION: TECH] ---
 elif role == "tech":
-    st.header("🔧 Technician Action Center")
-    view_mode = st.radio("ประเภทงาน:", ["PCBA", "Machine"], horizontal=True)
-    
-    # ดึงข้อมูล Dropdowns สำหรับช่าง
+    st.header(f"🔧 Technician Action ({mode})")
+    # ดึง Action และ Classification จากชีตที่กำหนด
     df_actions = get_clean_df("action_dropdowns")
     df_class = get_clean_df("classification_dropdowns")
     
-    action_list = df_actions['category'].tolist() if not df_actions.empty else []
-    class_list = df_class['category'].tolist() if not df_class.empty else []
-
-    search_sn = st.text_input(f"🔍 Scan SN เพื่อซ่อม").strip().upper()
+    search_sn = st.text_input(f"🔍 Scan SN ({mode})").strip().upper()
+    
     if search_sn:
         df = get_clean_df("sheet1")
+        # กรองเฉพาะโหมดที่เลือกมาตอน Login
         job = df[(df['serial_number'].astype(str) == search_sn) & 
-                 (df['category'].astype(str) == view_mode) & 
+                 (df['category'].astype(str) == mode) & 
                  (df['status'] != "Completed")].tail(1)
         
         if not job.empty:
