@@ -55,10 +55,15 @@ def upload_multiple_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-# --- 3. LOGIN (Simplified) ---
+# --- 3. LOGIN WITH MODE SELECTION ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
+
 if not st.session_state.is_logged_in:
-    st.title("🛠️ Repair System 2026")
+    st.title("🛡️ Repair Management System")
+    
+    # เพิ่มการเลือก Mode ก่อน Login
+    app_mode = st.selectbox("เลือกประเภทงานที่ต้องการเข้าบันทึก", ["PCBA", "Machine"], index=0)
+    
     with st.form("auth_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
@@ -66,57 +71,67 @@ if not st.session_state.is_logged_in:
             df_u = get_clean_df("users")
             match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
             if not match.empty:
-                st.session_state.update({"is_logged_in": True, "user": u, "role": match.iloc[0]['role'].lower()})
+                st.session_state.update({
+                    "is_logged_in": True, 
+                    "user": u, 
+                    "role": match.iloc[0]['role'].lower(),
+                    "app_mode": app_mode  # เก็บโหมดไว้ใน session
+                })
                 st.rerun()
             else: st.error("Login Failed")
     st.stop()
 
 # --- 4. INTERFACE ---
 role = st.session_state.role
+mode = st.session_state.app_mode
+
+st.sidebar.info(f"👤 {st.session_state.user} | Mode: {mode}")
+if st.sidebar.button("Logout"):
+    st.session_state.is_logged_in = False
+    st.rerun()
 
 # --- [SECTION: USER] ---
 if role == "user":
-    st.header("📋 แจ้งซ่อมใหม่ (User Reporting)")
-    category = st.radio("ประเภทงาน", ["PCBA", "Machine"], horizontal=True)
-
-    # ดึงข้อมูล Dropdowns จาก Sheets
-    df_master = get_clean_df("model_mat")
-    df_stations = get_clean_df("station_dropdowns") # ดึงจากแผ่นงาน station_dropdowns
+    st.header(f"📋 New Repair Request ({mode})")
     
-    model_list = df_master['model'].tolist() if not df_master.empty else []
-    station_list = df_stations['category'].tolist() if not df_stations.empty else [] # รายการสถานี
+    # ดึงข้อมูลมาแสดงตาม Mode
+    df_master = get_clean_df("model_mat")
+    # สมมติว่า model_mat มีคอลัมน์ category ไว้แยก PCBA/Machine
+    df_filtered_model = df_master[df_master['category'] == mode] if 'category' in df_master.columns else df_master
+    
+    df_stations = get_clean_df("station_dropdowns")
+    # กรองสถานีตาม Mode
+    df_filtered_station = df_stations[df_stations['category'] == mode] if 'category' in df_stations.columns else df_stations
 
     with st.form("user_entry_form"):
         c1, c2 = st.columns(2)
         with c1:
-            input_model = st.selectbox("Model Name", [""] + model_list)
+            input_model = st.selectbox("Model", [""] + df_filtered_model['model'].tolist())
             auto_prod = ""
-            if input_model and not df_master.empty:
-                match = df_master[df_master['model'] == input_model]
+            if input_model:
+                match = df_filtered_model[df_filtered_model['model'] == input_model]
                 if not match.empty: auto_prod = match.iloc[0]['product_name']
             
-            product_name = st.text_input("Product Name (Auto)", value=auto_prod, disabled=True)
-            wo = st.text_input("Work Order (WO)")
+            product_name = st.text_input("Product Name", value=auto_prod, disabled=True)
+            wo = st.text_input("Work Order")
             
         with c2:
             sn = st.text_input("Serial Number (SN)").upper()
-            # ใช้สถานีจาก Dropdown แทนการพิมพ์
-            station = st.selectbox("Station", station_list) 
-            defect = st.text_area("อาการเสีย (Defect)")
+            station = st.selectbox("Station", df_filtered_station['value'].tolist() if 'value' in df_filtered_station.columns else ["N/A"]) 
+            defect = st.text_area("Defect Detail")
         
-        user_files = st.file_uploader("📸 แนบรูปภาพประกอบ", accept_multiple_files=True)
+        user_files = st.file_uploader("📸 Upload Photos", accept_multiple_files=True)
         
-        if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
+        if st.form_submit_button("🚀 Submit"):
             if input_model and sn and defect:
                 with st.spinner("Recording..."):
-                    img_links = upload_multiple_images(user_files, f"REQ_{category}", sn)
+                    img_links = upload_multiple_images(user_files, f"REQ_{mode}", sn)
                     ws = ss.worksheet("sheet1")
                     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # บันทึกตามโครงสร้าง A-I
-                    row = [category, "Pending", wo, input_model, auto_prod, sn, station, defect, now]
+                    # คอลัมน์ A=mode
+                    row = [mode, "Pending", wo, input_model, auto_prod, sn, station, defect, now]
                     ws.append_row(row + ([""] * 6) + [img_links])
-                    st.success("แจ้งซ่อมสำเร็จ!")
-
+                    st.success(f"บันทึกข้อมูล {mode} สำเร็จ!")
 # --- [SECTION: TECH] ---
 elif role == "tech":
     st.header("🔧 Technician Action Center")
