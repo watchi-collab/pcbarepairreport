@@ -55,112 +55,140 @@ def upload_multiple_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-# --- 3. LOGIN ---
+# --- 3. LOGIN & DROPDOWNS ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
-
 if not st.session_state.is_logged_in:
-    st.title("🛡️ Repair Management System 2026")
-    app_mode = st.selectbox("เลือกประเภทงาน (เฉพาะ User)", ["PCBA", "Machine"], index=0)
-    with st.form("auth_form"):
+    st.title("🛡️ Repair Management System")
+    app_mode = st.selectbox("โหมดเริ่มต้น (สำหรับ User)", ["PCBA", "Machine"])
+    with st.form("login_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
-        if st.form_submit_button("Sign In"):
+        if st.form_submit_button("Login"):
             df_u = get_clean_df("users")
             match = df_u[(df_u['username'].astype(str) == u) & (df_u['password'].astype(str) == p)]
             if not match.empty:
-                st.session_state.update({
-                    "is_logged_in": True, 
-                    "user": u, 
-                    "role": match.iloc[0]['role'].lower(),
-                    "app_mode": app_mode
-                })
+                st.session_state.update({"is_logged_in": True, "user": u, "role": match.iloc[0]['role'].lower(), "app_mode": app_mode})
                 st.rerun()
             else: st.error("Login Failed")
     st.stop()
 
-# --- 4. PRE-LOAD DROPDOWNS ---
+# โหลดข้อมูลตัวเลือก
 df_actions = get_clean_df("action_dropdowns")
-action_list = df_actions['category'].tolist() if not df_actions.empty else ["Repair", "Replace"]
-
+action_list = df_actions['category'].tolist() if not df_actions.empty else ["N/A"]
 df_class = get_clean_df("classification_dropdowns")
-class_list = df_class['category'].tolist() if not df_class.empty else ["Process", "Material"]
+class_list = df_class['category'].tolist() if not df_class.empty else ["N/A"]
 
-# --- 5. INTERFACE ---
+# --- 4. INTERFACE ---
 role = st.session_state.role
-mode = st.session_state.app_mode
-
 st.sidebar.info(f"👤 {st.session_state.user} | Role: {role.upper()}")
 if st.sidebar.button("Logout"):
     st.session_state.is_logged_in = False
     st.rerun()
 
-# --- [SECTION: USER] ---
-if role == "user":
-    # (ส่วนของ User เหมือนเดิมตาม Code ก่อนหน้า)
-    st.header(f"📋 New Request ({mode})")
-    # ... [โค้ดส่วน User] ...
-
 # --- [SECTION: TECH] ---
-elif role == "tech":
+if role == "tech":
     st.header("🔧 Technician Action Center (Universal Scan)")
     search_sn = st.text_input("🔍 Scan Serial Number (SN) เพื่อซ่อม").strip().upper()
     
     if search_sn:
-        df = get_clean_df("sheet1")
+        df_all = get_clean_df("sheet1")
         
-        # กรองข้อมูล: หา SN ล่าสุดที่ยังไม่ Completed (ไม่เช็ค Category เพื่อให้ Tech เห็นทุกอย่าง)
-        job_search = df[(df['serial_number'].astype(str) == search_sn) & (df['status'] != "Completed")]
+        # กรองงานปัจจุบันที่ค้างซ่อม (Pending)
+        active_jobs = df_all[(df_all['serial_number'].astype(str) == search_sn) & (df_all['status'] != "Completed")]
         
-        if not job_search.empty:
-            # เลือกรายการล่าสุดเสมอ (Latest Entry)
-            job = job_search.tail(1)
+        # ประวัติการซ่อมเก่า (History)
+        history_df = df_all[(df_all['serial_number'].astype(str) == search_sn) & (df_all['status'] == "Completed")]
+
+        if not active_jobs.empty:
+            job = active_jobs.tail(1) # เลือกรายการล่าสุด
             row_data = job.iloc[0]
             
-            # --- SIDE-BY-SIDE LAYOUT ---
-            col_info, col_form = st.columns([1, 2])
+            col_info, col_form = st.columns([1, 1.2])
             
             with col_info:
-                st.markdown("### 📋 ข้อมูลรายการ")
+                st.subheader("📋 ข้อมูลงานปัจจุบัน")
                 st.success(f"**SN:** {row_data['serial_number']}")
                 st.info(f"**Work Order:** {row_data['work_order']}")
-                st.warning(f"**Category:** {row_data['category']}")
-                st.write(f"**Model:** {row_data['model']}")
-                st.write(f"**Product:** {row_data['product_name']}")
-                st.error(f"**อาการเสีย:** {row_data['failure']}")
+                st.warning(f"**หมวดหมู่:** {row_data['category']}")
+                st.write(f"**อาการเสีย:** {row_data['failure']}")
                 
-                # แสดงรูปจาก User (ถ้ามี)
                 if row_data.get('user_image'):
                     st.write("🖼️ รูปจาก User:")
-                    for img_url in str(row_data['user_image']).split(','):
-                        if img_url: st.image(img_url, use_container_width=True)
+                    for img in str(row_data['user_image']).split(','):
+                        if img: st.image(img, use_container_width=True)
 
             with col_form:
-                st.markdown("### 🛠️ บันทึกการซ่อม")
-                with st.form("tech_action_form"):
-                    real_case = st.text_input("สาเหตุ (Real Case)")
-                    act_choice = st.selectbox("Action", action_list)
+                st.subheader("🛠️ บันทึกการแก้ไข")
+                with st.form("tech_repair_form"):
+                    real_case = st.text_input("Real Case (สาเหตุ)")
+                    act_choice = st.selectbox("Action (วิธีแก้)", action_list)
                     class_choice = st.selectbox("Classification", class_list)
-                    remark = st.text_area("หมายเหตุ")
+                    remark = st.text_area("Remark")
                     tech_files = st.file_uploader("📸 รูปหลังซ่อม", accept_multiple_files=True)
                     
-                    if st.form_submit_button("💾 บันทึกปิดงาน"):
-                        with st.spinner("กำลังอัปเดตข้อมูล..."):
-                            # หา Index จริงจากต้นฉบับ (ป้องกันการเลื่อนบรรทัด)
-                            idx = job.index[-1] + 2
-                            ws = ss.worksheet("sheet1")
-                            t_links = upload_multiple_images(tech_files, "TECH", search_sn)
-                            t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                            
-                            # อัปเดตสถานะและข้อมูลซ่อม
-                            ws.update(f'B{idx}', [['Completed']])
-                            ws.update(f'J{idx}:O{idx}', [[real_case, act_choice, class_choice, remark, st.session_state.user, t_now]])
-                            ws.update(f'Q{idx}', [[t_links]])
-                            
-                            st.success(f"ปิดงาน WO: {row_data['work_order']} เรียบร้อย!")
-                            st.balloons()
-                            # ไม่ต้อง rerun ทันทีเพื่อให้ช่างดูผลลัพธ์แวบหนึ่ง หรือจะใส่ st.rerun() ก็ได้
+                    if st.form_submit_button("💾 บันทึกและปิดงาน"):
+                        idx = job.index[-1] + 2
+                        ws = ss.worksheet("sheet1")
+                        t_links = upload_multiple_images(tech_files, "TECH", search_sn)
+                        t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        ws.update(f'B{idx}', [['Completed']])
+                        ws.update(f'J{idx}:O{idx}', [[real_case, act_choice, class_choice, remark, st.session_state.user, t_now]])
+                        ws.update(f'Q{idx}', [[t_links]])
+                        st.success(f"ปิดงานสำเร็จ!")
+                        st.rerun()
+            
+            # --- SHOW HISTORY BELOW FORM ---
+            st.divider()
+            st.subheader("🕒 ประวัติการซ่อมเก่า (Repair History)")
+            if not history_df.empty:
+                # เลือกเฉพาะคอลัมน์ที่สำคัญมาโชว์
+                display_cols = ['user_time', 'failure', 'real_case', 'action', 'tech_id', 'tech_time']
+                st.table(history_df[display_cols].sort_values(by='tech_time', ascending=False))
+            else:
+                st.info("เครื่องนี้ยังไม่เคยมีประวัติการซ่อมในระบบ")
         else:
-            st.error(f"❌ ไม่พบ SN: {search_sn} ที่ค้างซ่อมในระบบ")
+            st.error(f"❌ ไม่พบ SN: {search_sn} ที่ค้างซ่อม")
+            # ถ้าไม่เจองานค้างซ่อม แต่อยากดูประวัติเก่า ก็โชว์ให้ดูได้
+            if not history_df.empty:
+                st.subheader("🕒 ประวัติการซ่อมเก่า (ค้นพบเฉพาะรายการที่ปิดงานแล้ว)")
+                st.table(history_df[['user_time', 'failure', 'action', 'tech_id']].sort_values(by='user_time', ascending=False))
+
+# --- [SECTION: USER] ---
+elif role == "user":
+    st.header(f"📋 แจ้งซ่อมใหม่ ({st.session_state.app_mode})")
+    model_sheet = "model_machine" if mode == "Machine" else "model_mat"
+    df_model_source = get_clean_df(model_sheet)
+    model_options = df_model_source['model'].tolist() if not df_model_source.empty else []
+
+    with st.form("user_entry_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            input_model = st.selectbox("Model Name", [""] + model_options)
+            auto_prod = ""
+            if input_model:
+                m_match = df_model_source[df_model_source['model'] == input_model]
+                if not m_match.empty: auto_prod = m_match.iloc[0]['product_name']
+            st.text_input("Product Name (Auto)", value=auto_prod, disabled=True)
+            wo = st.text_input("Work Order (WO)")
+        with c2:
+            sn = st.text_input("Serial Number (SN)").upper()
+            station = st.selectbox("Station", station_list)
+            defect = st.text_area("อาการเสีย (Defect)")
+        
+        user_files = st.file_uploader("📸 แนบรูปภาพประกอบ", accept_multiple_files=True)
+        
+        if st.form_submit_button("🚀 ส่งข้อมูลแจ้งซ่อม"):
+            if input_model and sn and defect:
+                with st.spinner("Saving..."):
+                    img_links = upload_multiple_images(user_files, f"REQ_{mode}", sn)
+                    ws = ss.worksheet("sheet1")
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    # A:Category, B:Status, C:WO, D:Model, E:P_Name, F:SN, G:Station, H:Defect, I:Time, P:Image
+                    row = [mode, "Pending", wo, input_model, auto_prod, sn, station, defect, now]
+                    ws.append_row(row + ([""] * 6) + [img_links])
+                    st.success(f"บันทึกข้อมูล {mode} สำเร็จ!")
+            else: st.warning("กรุณากรอก Model, SN และอาการเสีย")
 
 # --- [SECTION: ADMIN] ---
 elif role in ["admin", "super admin"]:
