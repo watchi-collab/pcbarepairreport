@@ -111,37 +111,40 @@ if role == "tech":
                 st.info(f"**SN:** {row_data['serial_number']} | **Product:** {row_data['product_name']}")
                 st.warning(f"**Model:** {row_data['model']} | **WO:** {row_data['work_order']}")
                 st.error(f"**อาการเสีย:** {row_data['failure']}")
-                if row_data.get('user_image'):
-                    for img in str(row_data['user_image']).split(','):
-                        if img: st.image(img, use_container_width=True)
+                
+                # --- ส่วนแสดงรูปภาพจาก User (ถ้ามี) ---
+                if 'user_image' in row_data and row_data['user_image']:
+                    st.write("🖼️ **รูปประกอบจาก User:**")
+                    u_urls = str(row_data['user_image']).split(',')
+                    for url in u_urls:
+                        if url.strip(): st.image(url.strip(), use_container_width=True)
 
             with col_form:
                 st.subheader("🛠️ บันทึกผลการดำเนินงาน")
                 with st.form("tech_repair_form"):
-                    # เพิ่มตัวเลือกสถานะ Complate หรือ Scrap
                     new_status = st.radio("เลือกสถานะการปิดงาน:", ["Complate", "Scrap"], horizontal=True)
                     real_case = st.text_input("Real Case (สาเหตุที่พบ)")
                     act_choice = st.selectbox("Action (การแก้ไข)", action_list)
                     class_choice = st.selectbox("Classification", class_list)
                     remark = st.text_area("Remark")
-                    tech_files = st.file_uploader("📸 รูปประกอบ", accept_multiple_files=True)
+                    tech_files = st.file_uploader("📸 รูปประกอบหลังซ่อม", accept_multiple_files=True)
                     
                     if st.form_submit_button("💾 บันทึกข้อมูล"):
-                        idx = job.index[-1] + 2
-                        ws = ss.worksheet("sheet1")
-                        t_links = upload_multiple_images(tech_files, "TECH", search_sn)
-                        t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        
-                        # อัปเดตสถานะตามที่เลือก (Complate หรือ Scrap)
-                        ws.update(f'B{idx}', [[new_status]])
-                        ws.update(f'J{idx}:O{idx}', [[real_case, act_choice, class_choice, remark, st.session_state.user, t_now]])
-                        ws.update(f'Q{idx}', [[t_links]])
-                        
-                        if new_status == "Complate": st.balloons()
-                        else: st.snow()
-                        
-                        st.success(f"บันทึกเป็นสถานะ {new_status} เรียบร้อย!")
-                        time.sleep(2); st.rerun()
+                        with st.spinner("กำลังอัปโหลดรูปภาพและบันทึกข้อมูล..."):
+                            idx = job.index[-1] + 2
+                            ws = ss.worksheet("sheet1")
+                            t_links = upload_multiple_images(tech_files, "TECH", search_sn)
+                            t_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            
+                            # อัปเดตข้อมูล B:Status, J-O:Details, Q:Tech Image
+                            ws.update(f'B{idx}', [[new_status]])
+                            ws.update(f'J{idx}:O{idx}', [[real_case, act_choice, class_choice, remark, st.session_state.user, t_now]])
+                            ws.update(f'Q{idx}', [[t_links]])
+                            
+                            if new_status == "Complate": st.balloons()
+                            else: st.snow()
+                            st.success(f"บันทึกเป็นสถานะ {new_status} เรียบร้อย!")
+                            time.sleep(2); st.rerun()
 
             # --- Machine Link Logic ---
             if row_data['category'] == "Machine":
@@ -153,7 +156,9 @@ if role == "tech":
                         if st.form_submit_button("🚀 ส่งซ่อม"):
                             p_name = df_pcba_m[df_pcba_m['model']==n_mod].iloc[0]['product_name']
                             ws = ss.worksheet("sheet1")
-                            ws.append_row(["PCBA", "Pending", row_data['work_order'], n_mod, p_name, n_sn, row_data['station'], f"[Linked: {search_sn}]", datetime.now().strftime("%Y-%m-%d %H:%M")]+([""]*6))
+                            now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            # บันทึก Row ใหม่ (คอลัมน์ A-P เพื่อให้ u_links อยู่ใน P)
+                            ws.append_row(["PCBA", "Pending", row_data['work_order'], n_mod, p_name, n_sn, row_data['station'], f"[Linked: {search_sn}]", now_ts, "", "", "", "", "", ""])
                             st.success("ผูกข้อมูลสำเร็จ!")
 
         else:
@@ -170,32 +175,44 @@ elif role == "user":
     t1, t2 = st.tabs(["🚀 แจ้งซ่อมใหม่", "🔍 ติดตามงาน"])
     
     with t1:
-        # ... (ส่วนแจ้งซ่อมเดิม โดยบันทึก status เป็น "Pending" เสมอ) ...
         df_models = get_clean_df("model_machine" if current_mode == "Machine" else "model_mat")
         with st.form("user_form"):
             in_model = st.selectbox("Model", [""] + df_models['model'].tolist())
             sn = st.text_input("SN").upper()
+            stn_choice = st.selectbox("Station", station_list)
             dfct = st.text_area("อาการเสีย")
+            u_files = st.file_uploader("📸 แนบรูปภาพอาการเสีย", accept_multiple_files=True)
+            
             if st.form_submit_button("🚀 ส่งแจ้งซ่อม"):
                 if in_model and sn:
-                    ws = ss.worksheet("sheet1")
-                    p_name = df_models[df_models['model']==in_model].iloc[0]['product_name']
-                    ws.append_row([current_mode, "Pending", "", in_model, p_name, sn, "", dfct, datetime.now().strftime("%Y-%m-%d %H:%M")]+([""]*7))
-                    st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+                    with st.spinner("กำลังอัปโหลดรูปและส่งข้อมูล..."):
+                        u_links = upload_multiple_images(u_files, f"REQ_{current_mode}", sn)
+                        ws = ss.worksheet("sheet1")
+                        p_name = df_models[df_models['model']==in_model].iloc[0]['product_name']
+                        now_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        # สร้าง Row data 15 คอลัมน์ (A-O) + P:user_image
+                        row_to_add = [current_mode, "Pending", "", in_model, p_name, sn, stn_choice, dfct, now_ts, "", "", "", "", "", ""]
+                        ws.append_row(row_to_add + [u_links])
+                        
+                        st.snow()
+                        st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
 
     with t2:
-        query = st.text_input("🔍 ค้นหา SN เพื่อติดตามสถานะ").strip().upper()
+        query = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
         if query:
             df_track = get_clean_df("sheet1")
-            res = df_track[df_track['serial_number'].str.contains(query)]
+            res = df_track[df_track['serial_number'].str.contains(query) | df_track['model'].str.contains(query)]
             for _, r in res.sort_values(by='user_time', ascending=False).iterrows():
-                # แยกสีตามสถานะใหม่
                 st_color = "orange" if r['status'] == "Pending" else ("green" if r['status'] == "Complate" else "red")
                 icon = "⏳" if r['status'] == "Pending" else ("✅" if r['status'] == "Complate" else "🗑️")
                 with st.expander(f"{icon} SN: {r['serial_number']} | Status: {r['status']}"):
                     st.write(f"สถานะปัจจุบัน: :{st_color}[{r['status']}]")
+                    st.write(f"**อาการ:** {r['failure']}")
+                    if r.get('user_image'):
+                        st.image(str(r['user_image']).split(',')[0], caption="รูปแจ้งซ่อม", width=300)
                     if r['status'] != "Pending":
-                        st.write(f"ผลการดำเนินงาน: {r['action']} (โดย {r['tech_id']})")
+                        st.write(f"**วิธีแก้ไข:** {r['action']} (โดย {r['tech_id']})")
 
 # --- [SECTION: ADMIN] ---
 elif role in ["admin", "super admin"]:
@@ -204,7 +221,7 @@ elif role in ["admin", "super admin"]:
     if not df.empty:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total", len(df))
-        c2.metric("Pending", len(df[df['status']=="Pending"]), delta_color="inverse")
+        c2.metric("Pending", len(df[df['status']=="Pending"]))
         c3.metric("Complate", len(df[df['status']=="Complate"]))
         c4.metric("Scrap", len(df[df['status']=="Scrap"]))
         
