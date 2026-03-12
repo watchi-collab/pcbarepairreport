@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import plotly.express as px
 import streamlit as st
+import plotly.express as px
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
