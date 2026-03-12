@@ -62,18 +62,34 @@ def upload_multiple_images(files, prefix, sn):
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=75)
             buf.seek(0)
+            
             f_name = f"{prefix}_{sn}_{datetime.now().strftime('%H%M%S')}_{i+1}.jpg"
-            f_meta = {'name': f_name, 'parents': [DRIVE_FOLDER_ID]}
+            f_meta = {
+                'name': f_name, 
+                'parents': [DRIVE_FOLDER_ID]
+            }
             media = MediaIoBaseUpload(buf, mimetype='image/jpeg', resumable=True)
             
-            # อัปโหลดและเปิด Permission
-            f_drive = drive_service.files().create(body=f_meta, media_body=media, fields='id, webViewLink').execute()
-            drive_service.permissions().create(fileId=f_drive.get('id'), body={'type': 'anyone', 'role': 'viewer'}).execute()
+            # --- แก้ไขจุดนี้: เพิ่ม supportsAllDrives=True ---
+            f_drive = drive_service.files().create(
+                body=f_meta, 
+                media_body=media, 
+                fields='id, webViewLink',
+                supportsAllDrives=True  # บังคับใช้โควตาเจ้าของโฟลเดอร์
+            ).execute()
+            
+            # เปิด Permission ให้ดูรูปได้
+            drive_service.permissions().create(
+                fileId=f_drive.get('id'), 
+                body={'type': 'anyone', 'role': 'viewer'},
+                supportsAllDrives=True
+            ).execute()
+            
             urls.append(f_drive.get('webViewLink'))
         except Exception as e:
-            st.warning(f"Upload failed: {e}")
+            st.error(f"❌ อัปโหลดล้มเหลว: {e}") # จะช่วยโชว์ Error ถ้ายังติดเรื่องอื่น
+            continue
     return ",".join(urls)
-
 # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 
