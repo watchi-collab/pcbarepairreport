@@ -171,30 +171,41 @@ if role == "tech":
 
 # --- 5. [USER PAGE] ---
 elif role == "user":
-    st.header(f"🚀 Repair System ({app_mode})")
-    tab_req, tab_track = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามงาน"])
-    with tab_req:
+    st.header(f"🚀 Repair Portal ({app_mode})")
+    t1, t2 = st.tabs(["➕ Request Repair", "🔍 Track Status"])
+    
+    with t1:
+        # ระบบเพิ่ม Model ใหม่
+        with st.expander("➕ เพิ่ม Model ใหม่เข้าระบบ (ถ้าไม่มีในรายการ)"):
+            new_m = st.text_input("ชื่อ Model ใหม่").upper()
+            new_p = st.text_input("ชื่อ Product ใหม่")
+            if st.button("บันทึก Model ใหม่"):
+                if new_m and new_p:
+                    m_sheet = "model_machine" if app_mode == "Machine" else "model_mat"
+                    ss.worksheet(m_sheet).append_row([new_m, new_p])
+                    st.success(f"เพิ่ม {new_m} เรียบร้อย! กรุณาเลือกในรายการด้านล่าง")
+                else: st.error("กรุณากรอกข้อมูลให้ครบ")
+
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
-        with st.form("user_req_new"):
+        
+        with st.form("req_form"):
             c1, c2 = st.columns(2)
-            with c1:
-                sel_m = st.selectbox("Model", [""] + (df_m['model'].tolist() if not df_m.empty else []))
-                p_name = df_m[df_m['model'] == sel_m]['product_name'].values[0] if sel_m and not df_m.empty else ""
-                st.text_input("Product", value=p_name, disabled=True)
-                sn = st.text_input("SN").strip().upper()
-            with c2:
-                wo = st.text_input("WO").strip().upper()
-                stat = st.selectbox("Station", [""] + (df_st['station'].tolist() if not df_st.empty else []))
-                fail = st.text_area("Failure Detail")
+            sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
+            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
+            c1.text_input("Product", value=p_val, disabled=True)
+            sn = c1.text_input("Serial Number").strip().upper()
+            wo = c2.text_input("Work Order").strip().upper()
+            stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
+            fail = c2.text_area("Failure Detail")
             u_imgs = st.file_uploader("Upload Image", accept_multiple_files=True)
-            if st.form_submit_button("ส่งแจ้งซ่อม"):
+            
+            if st.form_submit_button("Submit Request"):
                 if sel_m and sn and wo:
-                    u_urls = upload_images(u_imgs, "REQ", sn)
-                    now_s = get_now()
-                    ws_main.append_row([app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", "", u_urls])
-                    send_line(f"🚨 [แจ้งซ่อมใหม่]\nSN: {sn}\nModel: {sel_m}\nโดย: {current_user}")
-                    st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+                    urls = upload_images(u_imgs, "REQ", sn)
+                    ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail, get_now(), "", "", "", "", "", "", urls])
+                    send_line(f"🚨 New Repair: {sn} ({sel_m}) by {current_user}")
+                    st.success("Request Sent!"); time.sleep(1); st.rerun()
     with tab_track:
         search_q = st.text_input("🔍 Search SN/Model", key="u_search").strip().upper()
         df_s = get_df("sheet1")
@@ -217,28 +228,42 @@ elif role == "user":
 
 # --- 6. [ADMIN PAGE] ---
 elif role in ["admin", "super admin"]:
-    st.header("📊 Dashboard ระบบแจ้งซ่อม")
-    df = get_df("sheet1") # แก้ไขจาก get_clean_df เป็น get_df
+    st.header("📊 Data & Analytics")
+    df = get_df("sheet1")
     
     if not df.empty:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("งานค้าง (Pending)", len(df[df['status'] == "Pending"]))
-        c2.metric("ซ่อมเสร็จ (Complate)", len(df[df['status'] == "Complate"]))
-        c3.metric("Scrap", len(df[df['status'] == "Scrap"]))
+        # กราฟแยกตาม Classification
+        st.subheader("🛠️ Classification Analysis")
+        # กรองเฉพาะงานที่ทำเสร็จแล้ว (มี Classification)
+        df_done = df[df['classification'] != ""]
+        if not df_done.empty:
+            fig_cls = px.bar(df_done, x='classification', color='status', title="Jobs by Classification")
+            st.plotly_chart(fig_cls, use_container_width=True)
         
+        # ปุ่ม Export to Excel
         st.divider()
-        col_chart1, col_chart2 = st.columns(2)
-        with col_chart1:
-            st.subheader("สัดส่วนสถานะงาน")
-            fig = px.pie(df, names='status', color='status', 
-                         color_discrete_map={'Pending':'orange','Complate':'green','Scrap':'red'})
-            st.plotly_chart(fig, use_container_width=True)
-        with col_chart2:
-            st.subheader("งานแยกตาม Model")
-            fig2 = px.bar(df, x='model', color='status', barmode='group')
-            st.plotly_chart(fig2, use_container_width=True)
+        towrite = io.BytesIO()
+        df.to_excel(towrite, index=False, engine='openpyxl')
+        st.download_button(label="📥 Export Data to Excel", data=towrite.getvalue(), file_name=f"repair_report_{get_now()}.xlsx", mime="application/vnd.ms-excel")
+        
+        st.subheader("📋 Raw Data")
+        st.dataframe(df)
 
-        st.subheader("📋 ตารางข้อมูลทั้งหมด")
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.info("ยังไม่มีข้อมูลในระบบ")
+    # เฉพาะ SUPER ADMIN: จัดการ User
+    if role == "super admin":
+        st.divider()
+        st.header("👮 Super Admin: User Management")
+        df_u = get_df("users")
+        
+        with st.expander("👥 รายชื่อผู้ใช้งานปัจจุบัน"):
+            st.table(df_u[['username', 'role']])
+        
+        with st.form("add_user"):
+            st.write("➕ เพิ่มผู้ใช้งานใหม่")
+            new_u = st.text_input("Username").strip()
+            new_p = st.text_input("Password").strip()
+            new_r = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
+            if st.form_submit_button("Add User"):
+                if new_u and new_p:
+                    ss.worksheet("users").append_row([new_u, new_p, new_r])
+                    st.success(f"เพิ่ม User {new_u} สำเร็จ!"); time.sleep(1); st.rerun()
