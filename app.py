@@ -209,6 +209,43 @@ elif role in ["admin", "super admin"]:
         st.download_button("📥 Export Report to Excel", data=towrite.getvalue(), file_name=f"Report_{get_now()}.xlsx")
 
     if role == "super admin":
-        with st.expander("👮 Super Admin: Manage Users"):
-            df_u = get_df("users")
-            st.table(df_u[['username', 'role']])
+        st.divider()
+        st.header("👮 Super Admin Control")
+        
+        # ดึงข้อมูลผู้ใช้งาน
+        df_u = get_df("users")
+        
+        # ตรวจสอบว่ามีคอลัมน์ nickname หรือไม่ ถ้าไม่มีให้สร้างจำลองไว้ก่อนเพื่อไม่ให้ Error
+        if 'nickname' not in df_u.columns:
+            df_u['nickname'] = ""
+
+        with st.expander("👤 จัดการรายชื่อผู้ใช้งานทั้งหมด"):
+            # แสดงตารางผู้ใช้งานพร้อมชื่อเล่น
+            st.dataframe(df_u[['username', 'nickname', 'role']], use_container_width=True)
+            
+            st.subheader("➕ เพิ่มผู้ใช้งานใหม่")
+            with st.form("add_user_form"):
+                col1, col2 = st.columns(2)
+                new_u = col1.text_input("Username (รหัสพนักงาน)")
+                new_n = col1.text_input("Nickname (ชื่อเล่น)")
+                new_p = col2.text_input("Password", type="password")
+                new_r = col2.selectbox("Role", ["user", "tech", "admin", "super admin"])
+                
+                submit_user = st.form_submit_button("บันทึกรายชื่อผู้ใช้งาน", use_container_width=True)
+                
+                if submit_user:
+                    if new_u and new_p and new_n:
+                        # บันทึกลง Google Sheets (username, password, role, nickname)
+                        ss.worksheet("users").append_row([new_u, new_p, new_r, new_n])
+                        st.success(f"เพิ่มคุณ {new_n} เข้าสู่ระบบเรียบร้อยแล้ว!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("กรุณากรอกข้อมูลให้ครบถ้วน (Username, Password และ ชื่อเล่น)")
+
+        # ส่วนแก้ไข Error KeyError จากรูปภาพ
+        st.divider()
+        st.subheader("🛠 ระบบตรวจสอบข้อมูล Dashboard")
+        df_main = get_df("sheet1")
+        if 'wait_part_name' not in df_main.columns:
+            st.warning("⚠️ ตรวจพบปัญหา: ไม่พบคอลัมน์ 'wait_part_name' ใน Sheet1 กรุณาเพิ่มหัวข้อคอลัมน์ใน Google Sheets")
