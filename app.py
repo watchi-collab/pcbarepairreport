@@ -14,7 +14,7 @@ from PIL import Image
 import plotly.express as px
 
 # --- 1. SETTINGS & CONNECTIONS ---
-st.set_page_config(page_title="Repair Management System PRO", layout="wide")
+st.set_page_config(page_title="Repair Expert System PRO", layout="wide")
 SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
 
 def get_now():
@@ -77,22 +77,22 @@ def upload_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-# --- 3. LOGIN & SESSION ---
+# --- 3. AUTH & SESSION ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 
 if not st.session_state.is_logged_in:
-    st.title("🛡️ Repair System Login")
+    st.title("🔐 Repair System Login")
     with st.form("login_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
-        mode = st.selectbox("โหมดการทำงาน", ["PCBA", "Machine"])
-        if st.form_submit_button("เข้าสู่ระบบ", use_container_width=True):
+        mode = st.selectbox("Working Mode", ["PCBA", "Machine"])
+        if st.form_submit_button("Login", use_container_width=True):
             df_u = get_df("users")
             match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
             if not match.empty:
                 st.session_state.update({"is_logged_in": True, "user": u, "role": str(match.iloc[0]['role']).lower(), "app_mode": mode})
                 st.rerun()
-            else: st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+            else: st.error("Invalid credentials")
     st.stop()
 
 ws_main = ss.worksheet("sheet1")
@@ -103,26 +103,26 @@ app_mode = st.session_state.app_mode
 with st.sidebar:
     st.title(f"👤 {current_user}")
     st.info(f"Role: {role.upper()}")
-    st.divider()
-    if st.button("ออกจากระบบ", use_container_width=True):
+    if st.button("Log out"):
         st.session_state.is_logged_in = False; st.rerun()
 
-# --- 4. USER INTERFACE ---
+# --- 4. USER PAGE ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
-    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามสถานะ"])
-
+    t1, t2 = st.tabs(["➕ Request Repair", "🔍 Track Status"])
+    
     with t1:
-        with st.expander("➕ เพิ่ม Model ใหม่ (หากไม่มีในรายการ)"):
-            nm, np = st.text_input("ชื่อ Model"), st.text_input("ชื่อ Product")
+        with st.expander("➕ เพิ่ม Model ใหม่ (Add New Model)"):
+            new_m = st.text_input("Model Name").upper()
+            new_p = st.text_input("Product Name")
             if st.button("บันทึก Model"):
                 target = "model_machine" if app_mode == "Machine" else "model_mat"
-                ss.worksheet(target).append_row([nm.upper(), np])
-                st.success("เพิ่มข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+                ss.worksheet(target).append_row([new_m, new_p])
+                st.success("เพิ่ม Model สำเร็จ!"); time.sleep(1); st.rerun()
 
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
-        with st.form("request_form"):
+        with st.form("req_form"):
             c1, c2 = st.columns(2)
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
@@ -131,82 +131,97 @@ if role == "user":
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail = c2.text_area("อาการเสีย")
-            imgs = st.file_uploader("แนบรูปภาพ", accept_multiple_files=True)
-            if st.form_submit_button("ส่งข้อมูลแจ้งซ่อม"):
+            u_imgs = st.file_uploader("Upload Image", accept_multiple_files=True)
+            if st.form_submit_button("Submit"):
                 if sel_m and sn and wo:
-                    urls = upload_images(imgs, "REQ", sn)
+                    urls = upload_images(u_imgs, "REQ", sn)
                     ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail, get_now(), "", "", "", "", "", "", urls])
-                    send_line(f"🚨 แจ้งซ่อมใหม่: {sn} ({sel_m}) โดย {current_user}")
-                    st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+                    send_line(f"🚨 แจ้งซ่อม: {sn} โดย {current_user}")
+                    st.success("ส่งข้อมูลสำเร็จ!"); st.rerun()
 
     with t2:
-        search = st.text_input("🔍 ค้นหา SN/Model").strip().upper()
-        df_all = get_df("sheet1")
-        if not df_all.empty:
-            my_jobs = df_all[df_all['category'] == app_mode]
-            if search: my_jobs = my_jobs[my_jobs['serial_number'].astype(str).str.contains(search)]
-            for i, r in my_jobs.tail(10).iloc[::-1].iterrows():
-                with st.expander(f"[{r['status']}] {r['serial_number']} - {r['user_time']}"):
-                    st.write(f"**อาการ:** {r['failure']}")
-                    if r['status'] == "Pending" and st.button("🔔 ตามงาน", key=f"urge_{i}"):
-                        send_line(f"⚠️ ตามงานด่วน: {r['serial_number']}!"); st.success("ส่งแจ้งเตือนแล้ว")
+        search_q = st.text_input("🔍 ค้นหา SN").strip().upper()
+        df_s = get_df("sheet1")
+        if not df_s.empty:
+            my_jobs = df_s[df_s['category'] == app_mode]
+            if search_q: my_jobs = my_jobs[my_jobs['serial_number'].astype(str).str.contains(search_q)]
+            for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
+                with st.expander(f"📌 {row['status']} | {row['serial_number']} | {row['user_time']}"):
+                    st.write(f"**อาการ:** {row['failure']}")
+                    if row['status'] == "Pending" and st.button("🔔 ตามงาน", key=f"f_{idx}"):
+                        send_line(f"⚠️ ตามงานด่วน: {row['serial_number']}!"); st.success("Alerted")
 
-# --- 5. TECHNICIAN INTERFACE ---
+# --- 5. TECH PAGE ---
 elif role == "tech":
-    st.header("🔧 แผงควบคุมงานซ่อม (Technician)")
-    sn_scan = st.text_input("🔍 สแกน Serial Number เพื่อทำงาน").strip().upper()
+    st.header("🔧 Technician Workspace")
+    sn_scan = st.text_input("🔍 Scan Serial Number (เพื่อทำงาน/ปิดงาน)").strip().upper()
     if sn_scan:
         df_all = get_df("sheet1")
-        job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status']=="Pending")]
+        # ค้นหางานที่เป็น Pending หรือ Wait Part
+        job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         if not job.empty:
             j = job.iloc[-1]; ridx = job.index[-1] + 2
             st.info(f"📍 {j['category']} | Model: {j['model']} | อาการ: {j['failure']}")
             
-            # Feature: Bridge Machine to PCBA
-            if j['category'] == "Machine":
-                with st.expander("🔁 ส่งซ่อมบอร์ดต่อ (Bridge to PCBA)"):
-                    pcba_sn = st.text_input("ระบุ SN บอร์ด").strip().upper()
-                    if st.button("🚀 ยืนยันส่งซ่อมบอร์ด"):
-                        ws_main.append_row(["PCBA", "Pending", j['work_order'], j['model'], j['product_name'], pcba_sn, "Machine Bridge", f"จากเครื่อง: {sn_scan}", get_now(), "", "", "", "", "", "", ""])
-                        st.success(f"สร้างรายการซ่อมบอร์ด {pcba_sn} แล้ว")
-
-            with st.form("close_job"):
-                res = st.radio("ผลการซ่อม", ["Complate", "Scrap"], horizontal=True)
+            with st.form("tech_close"):
+                res = st.radio("Update Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                part_name = st.text_input("ชื่อพาร์ทที่ต้องรอ (ถ้าเลือก Wait Part)")
                 cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                case = st.text_input("สาเหตุที่พบ")
-                act = st.text_area("การแก้ไข")
-                if st.form_submit_button("บันทึกปิดงาน"):
+                case = st.text_input("Real Case")
+                act = st.text_area("Action")
+                if st.form_submit_button("Save Update"):
                     ws_main.update(f'B{ridx}', [[res]])
                     ws_main.update(f'J{ridx}:L{ridx}', [[case, act, cls]])
+                    ws_main.update(f'M{ridx}', [[part_name]]) # Column M สำหรับพาร์ท
                     ws_main.update(f'N{ridx}:O{ridx}', [[current_user, get_now()]])
-                    send_line(f"✅ ปิดงาน: {sn_scan} ({res}) โดย {current_user}")
-                    st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-        else: st.warning("ไม่พบรายการที่ค้างซ่อม")
+                    send_line(f"✅ Update: {sn_scan} เป็น {res}"); st.success("Updated!"); st.rerun()
+        else: st.warning("ไม่พบรายการแจ้งซ่อม")
 
 # --- 6. ADMIN & SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
-    st.header("📊 Dashboard & Management")
+    st.header("📊 Admin Dashboard & Reports")
     df = get_df("sheet1")
     if not df.empty:
-        # Analytics
-        st.subheader("🛠️ สถิติแยกตามประเภทสาเหตุ (Classification)")
-        df_cls = df[df['classification'] != ""]
-        if not df_cls.empty:
-            fig = px.bar(df_cls, x='classification', color='status', barmode='group')
-            st.plotly_chart(fig, use_container_width=True)
+        # Data Preparation
+        df['user_time_dt'] = pd.to_datetime(df['user_time'], errors='coerce')
+        df['date'] = df['user_time_dt'].dt.date
+        df['week'] = df['user_time_dt'].dt.isocalendar().week
+        
+        # Top Metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Pending Jobs", len(df[df['status']=="Pending"]))
+        m2.metric("Wait Part", len(df[df['status']=="Wait Part"]))
+        m3.metric("Completed (All)", len(df[df['status']=="Complate"]))
+        m4.metric("Scrap", len(df[df['status']=="Scrap"]))
 
-        # Export
+        # Weekly/Daily Tabs
+        st.divider()
+        td, tw = st.tabs(["📆 Daily Summary", "📅 Weekly Summary"])
+        with td:
+            daily = df.groupby(['date', 'status']).size().reset_index(name='count')
+            st.plotly_chart(px.line(daily, x='date', y='count', color='status', title="แนวโน้มงานรายวัน"), use_container_width=True)
+        with tw:
+            weekly = df.groupby(['week', 'status']).size().reset_index(name='count')
+            st.plotly_chart(px.bar(weekly, x='week', y='count', color='status', barmode='group', title="สรุปงานรายสัปดาห์"), use_container_width=True)
+
+        # Classification & Export
+        st.subheader("🛠️ Classification & Raw Data")
+        c_fig = px.pie(df[df['classification'] != ""], names='classification', title="Jobs by Classification")
+        st.plotly_chart(c_fig, use_container_width=True)
+        
+        # Export Excel
         towrite = io.BytesIO()
         df.to_excel(towrite, index=False, engine='openpyxl')
-        st.download_button("📥 Export to Excel", data=towrite.getvalue(), file_name=f"RepairReport_{get_now()}.xlsx")
+        st.download_button("📥 Export Report to Excel", data=towrite.getvalue(), file_name=f"RepairReport_{get_now()}.xlsx")
         st.dataframe(df)
 
     if role == "super admin":
         st.divider()
-        st.header("👮 Super Admin: จัดการผู้ใช้งาน")
-        df_u = get_df("users")
-        st.table(df_u[['username', 'role']])
-        with st.form("add_u"):
-            nu, np, nr = st.text_input("Username"), st.text_input("Password"), st.selectbox("Role", ["user", "tech", "admin", "super admin"])
-            if st.form_submit_button("เพิ่มพนักงาน"):
-                ss.worksheet("users").append_row([nu, np, nr]); st.success("เพิ่มสำเร็จ!"); st.rerun()
+        st.header("👮 Super Admin Management")
+        with st.expander("👤 Manage Users"):
+            df_u = get_df("users")
+            st.table(df_u[['username', 'role']])
+            with st.form("add_user"):
+                nu, np, nr = st.text_input("New User"), st.text_input("New Pass"), st.selectbox("Role", ["user", "tech", "admin", "super admin"])
+                if st.form_submit_button("Add User"):
+                    ss.worksheet("users").append_row([nu, np, nr]); st.success("Added!"); st.rerun()
