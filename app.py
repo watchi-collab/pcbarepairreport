@@ -40,11 +40,13 @@ ss, success = init_all()
 if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
-# --- 2. HELPERS ---
+# --- 2. HELPERS (LINE & IMAGE) ---
 def send_line(msg):
+    # ดึงค่าจาก secrets (ตรวจเช็คชื่อ Key ใน Streamlit Cloud ให้ตรงกัน)
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
     if not token or not group_id: return
+    
     url = "https://api.line.me/v2/bot/message/push"
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
@@ -85,34 +87,26 @@ if not st.session_state.is_logged_in:
     with st.form("login_form"):
         u = st.text_input("Username").strip()
         p = st.text_input("Password", type="password").strip()
-        mode = st.selectbox("โหมดการทำงานเริ่มต้น", ["PCBA", "Machine"])
+        mode = st.selectbox("โหมดการทำงาน", ["PCBA", "Machine"])
         if st.form_submit_button("เข้าสู่ระบบ", use_container_width=True):
             df_u = get_df("users")
             match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
             if not match.empty:
                 st.session_state.update({"is_logged_in": True, "user": u, "role": str(match.iloc[0]['role']).lower(), "app_mode": mode})
                 st.rerun()
-            else: st.error("ข้อมูลไม่ถูกต้อง กรุณาเช็ค Username/Password อีกครั้ง")
+            else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
 
 ws_main = ss.worksheet("sheet1")
-role = st.session_state.role
-current_user = st.session_state.user
-app_mode = st.session_state.app_mode
+role, current_user, app_mode = st.session_state.role, st.session_state.user, st.session_state.app_mode
 
-with st.sidebar:
-    st.title(f"👤 {current_user}")
-    st.info(f"Role: {role.upper()}")
-    if st.button("ออกจากระบบ", use_container_width=True):
-        st.session_state.is_logged_in = False; st.rerun()
-
-# --- 4. USER INTERFACE (Optimized Search) ---
+# --- 4. USER INTERFACE (Search + Images + Alerts) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
-    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามสถานะ"])
+    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
 
     with t1:
-        with st.expander("➕ เพิ่ม Model ใหม่ (หากไม่มีในรายการ)"):
+        with st.expander("➕ เพิ่ม Model ใหม่"):
             new_m = st.text_input("Model Name").upper()
             new_p = st.text_input("Product Name")
             if st.button("บันทึก Model"):
@@ -131,63 +125,54 @@ if role == "user":
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail = c2.text_area("อาการเสีย")
-            u_imgs = st.file_uploader("แนบรูปภาพ", accept_multiple_files=True)
+            u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
             if st.form_submit_button("ยืนยันแจ้งซ่อม"):
-                if sel_m and sn and wo:
-                    urls = upload_images(u_imgs, "REQ", sn)
+                if sel_m and sn:
+                    with st.spinner("กำลังอัปโหลดรูปภาพ..."):
+                        urls = upload_images(u_imgs, "REQ", sn)
                     ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail, get_now(), "", "", "", "", "", "", urls])
-                    send_line(f"🚨 แจ้งซ่อม: {sn} ({sel_m}) โดย {current_user}")
-                    st.success("ส่งข้อมูลแจ้งซ่อมเรียบร้อย!"); time.sleep(1); st.rerun()
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nModel: {sel_m}\nอาการ: {fail}\nโดย: {current_user}")
+                    st.success("แจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
 
     with t2:
-        search_q = st.text_input("🔍 ค้นหา (พิมพ์ Serial Number หรือ Model)").strip().upper()
+        search_q = st.text_input("🔍 ค้นหา (SN หรือ Model)").strip().upper()
         df_s = get_df("sheet1")
         if not df_s.empty:
             my_jobs = df_s[df_s['category'] == app_mode]
             if search_q:
-                # ค้นหาครอบคลุมทั้ง SN และ Model แบบไม่สนตัวพิมพ์
-                my_jobs = my_jobs[
-                    (my_jobs['serial_number'].astype(str).str.contains(search_q, case=False)) | 
-                    (my_jobs['model'].astype(str).str.contains(search_q, case=False))
-                ]
+                my_jobs = my_jobs[(my_jobs['serial_number'].astype(str).str.contains(search_q)) | (my_jobs['model'].astype(str).str.contains(search_q))]
             
-            for idx, row in my_jobs.tail(15).iloc[::-1].iterrows():
+            for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
                 with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
-                    st.write(f"**เวลา:** {row['user_time']}")
-                    st.write(f"**อาการแจ้ง:** {row['failure']}")
-                    
-                    # แสดงข้อมูลพาร์ทที่รอ (ถ้ามี)
+                    st.write(f"**อาการ:** {row['failure']}")
                     if row['status'] == "Wait Part":
-                        st.warning(f"⏳ กำลังรอพาร์ท: **{row.get('wait_part_name', 'กำลังเช็คอะไหล่')}**")
-                    
-                    if row['status'] == "Pending" and st.button("🔔 ตามงานด่วน", key=f"urge_{idx}"):
-                        send_line(f"⚠️ ตามงานด่วน: {row['serial_number']}!"); st.success("แจ้งช่างแล้ว")
+                        st.warning(f"⏳ รอพาร์ท: {row.get('wait_part_name', 'กำลังจัดหา')}")
+                    if row['status'] == "Pending" and st.button("🔔 ตามงานด่วน", key=f"alert_{idx}"):
+                        send_line(f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nModel: {row['model']}\nรอมาตั้งแต่: {row['user_time']}"); st.success("แจ้งเตือนเรียบร้อย")
 
-# --- 5. TECH PAGE ---
+# --- 5. TECH PAGE (Wait Part + Update Alerts) ---
 elif role == "tech":
     st.header("🔧 Technician Workspace")
-    sn_scan = st.text_input("🔍 สแกน Serial Number เพื่ออัปเดตงาน").strip().upper()
+    sn_scan = st.text_input("🔍 สแกน Serial Number").strip().upper()
     if sn_scan:
         df_all = get_df("sheet1")
-        # กรองเฉพาะงานที่ยังไม่เสร็จ (Pending หรือ Wait Part)
         job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         if not job.empty:
             j = job.iloc[-1]; ridx = job.index[-1] + 2
-            st.info(f"📍 {j['category']} | {j['model']} | อาการ: {j['failure']}")
-            
-            with st.form("tech_close"):
-                res = st.radio("อัปเดตเป็นสถานะ:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
-                part_name = st.text_input("ระบุชื่อพาร์ทที่รอ (เฉพาะกรณีเลือก Wait Part)")
+            st.info(f"📍 อาการแจ้ง: {j['failure']}")
+            with st.form("tech_update"):
+                res = st.radio("สถานะ:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                p_name = st.text_input("ชื่อพาร์ท (กรณี Wait Part)")
                 cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                case = st.text_input("สาเหตุที่พบ (Real Case)")
-                act = st.text_area("การแก้ไข (Action)")
-                if st.form_submit_button("บันทึกข้อมูล"):
+                case = st.text_input("สาเหตุจริง")
+                act = st.text_area("วิธีแก้ไข")
+                if st.form_submit_button("บันทึกการซ่อม"):
                     ws_main.update(f'B{ridx}', [[res]])
                     ws_main.update(f'J{ridx}:L{ridx}', [[case, act, cls]])
-                    ws_main.update(f'M{ridx}', [[part_name]]) 
+                    ws_main.update(f'M{ridx}', [[p_name]])
                     ws_main.update(f'N{ridx}:O{ridx}', [[current_user, get_now()]])
-                    st.success("บันทึกข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
-        else: st.warning("ไม่พบรายการที่ต้องซ่อม หรือ งานอาจถูกปิดไปแล้ว")
+                    send_line(f"✅ อัปเดตงาน!\nSN: {sn_scan}\nสถานะ: {res}\nโดยช่าง: {current_user}")
+                    st.success("อัปเดตข้อมูลแล้ว!"); time.sleep(1); st.rerun()
 
 # --- 6. ADMIN & SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
