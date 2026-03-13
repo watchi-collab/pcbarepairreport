@@ -12,7 +12,7 @@ from datetime import datetime
 from PIL import Image
 
 # --- 1. SETTINGS & PAGE CONFIG ---
-st.set_page_config(page_title="PCBA Repair System", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Repair Management System", layout="wide")
 
 # ID ของ Google Sheet
 SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
@@ -28,7 +28,7 @@ def init_all():
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
         
-        # Cloudinary Setup (ใช้ค่าล่าสุดของคุณ)
+        # Cloudinary Setup
         cloudinary.config(
             cloud_name = "dn8n04koh",
             api_key = "352259521151764",
@@ -42,7 +42,7 @@ def init_all():
 ss, success = init_all()
 
 if not success:
-    st.error(f"❌ Connection Error: {ss}")
+    st.error(f"❌ ระบบเชื่อมต่อฐานข้อมูลไม่ได้: {ss}")
     st.stop()
 
 # --- 3. HELPER FUNCTIONS ---
@@ -55,18 +55,16 @@ def send_line(msg):
     try: requests.post(url, headers=headers, json=payload)
     except: pass
 
-def upload_to_cloudinary(files, prefix, sn):
+def upload_images(files, prefix, sn):
     urls = []
     if not files: return ""
     for i, file in enumerate(files):
         try:
-            # ย่อขนาดรูปภาพก่อนส่งเพื่อประหยัด bandwidth
             img = Image.open(file)
             img.thumbnail((1000, 1000))
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)
             buf.seek(0)
-
             res = cloudinary.uploader.upload(
                 buf,
                 folder = "repair_system",
@@ -90,15 +88,14 @@ if 'is_logged_in' not in st.session_state:
     st.session_state.is_logged_in = False
 
 if not st.session_state.is_logged_in:
-    st.title("⚙️ PCBA/Machine Repair System")
+    st.title("🛡️ Repair Management Login")
     with st.container():
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            with st.form("login_form"):
-                st.subheader("🔑 กรุณาเข้าสู่ระบบ")
+        col_l, col_m, col_r = st.columns([1, 1.5, 1])
+        with col_m:
+            with st.form("login"):
                 u = st.text_input("Username").strip()
                 p = st.text_input("Password", type="password").strip()
-                m = st.selectbox("โหมดการทำงาน", ["PCBA", "Machine"])
+                mode = st.selectbox("โหมดเริ่มต้น", ["PCBA", "Machine"])
                 if st.form_submit_button("เข้าสู่ระบบ", use_container_width=True):
                     df_u = get_df("users")
                     match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
@@ -107,111 +104,104 @@ if not st.session_state.is_logged_in:
                             "is_logged_in": True, 
                             "user": u, 
                             "role": match.iloc[0]['role'].lower(), 
-                            "app_mode": m
+                            "app_mode": mode
                         })
                         st.rerun()
-                    else: st.error("❌ Username หรือ Password ไม่ถูกต้อง")
+                    else: st.error("❌ ข้อมูลไม่ถูกต้อง")
     st.stop()
 
-# --- 5. APP INTERFACE ---
+# --- 5. APP MAIN LOGIC ---
 ws_main = ss.worksheet("sheet1")
 role = st.session_state.role
-user_now = st.session_state.user
-mode_now = st.session_state.app_mode
+current_user = st.session_state.user
+app_mode = st.session_state.app_mode
 
-# Sidebar จัดการโปรไฟล์
 with st.sidebar:
-    st.title(f"👤 {user_now}")
-    st.write(f"**ตำแหน่ง:** {role.upper()}")
-    st.write(f"**โหมด:** {mode_now}")
+    st.title(f"👤 {current_user}")
+    st.write(f"Role: **{role.upper()}**")
+    st.write(f"Mode: **{app_mode}**")
     st.divider()
-    if st.button("Log out", use_container_width=True):
+    if st.button("ออกจากระบบ", use_container_width=True):
         st.session_state.is_logged_in = False
         st.rerun()
 
 # --- [TECHNICIAN PAGE] ---
 if role == "tech":
-    st.header("🔧 แผงควบคุมช่าง (Technician Action)")
-    sn_scan = st.text_input("🔍 สแกน Serial Number เพื่อปิดงาน", placeholder="วางเคอร์เซอร์ที่นี่แล้วสแกน...").strip().upper()
+    st.header("🔧 แผงควบคุมงานซ่อม (Technician)")
+    sn_scan = st.text_input("🔍 สแกน Serial Number", placeholder="Scan Barcode Here...").strip().upper()
     
     if sn_scan:
         df_all = get_df("sheet1")
-        # กรองหางานที่ยัง Pending และตรงกับ SN
-        active_jobs = df_all[(df_all['serial_number'].astype(str) == sn_scan) & (df_all['status'] == "Pending")]
+        job_match = df_all[(df_all['serial_number'].astype(str) == sn_scan) & (df_all['status'] == "Pending")]
         
-        if not active_jobs.empty:
-            job = active_jobs.iloc[-1]
-            idx = active_jobs.index[-1] + 2 # แถวใน Google Sheet
+        if not job_match.empty:
+            job = job_match.iloc[-1]
+            row_idx = job_match.index[-1] + 2
             
-            st.divider()
-            c1, c2 = st.columns([1, 1])
+            c1, c2 = st.columns(2)
             with c1:
-                st.subheader("📋 รายละเอียดปัญหา")
-                st.info(f"**Model:** {job['model']}\n\n**Product:** {job['product_name']}\n\n**อาการเสีย:** {job['failure']}")
-                # โชว์รูปจาก Cloudinary (รูปที่ User อัปโหลดมา)
+                st.subheader("ข้อมูลการแจ้งเสีย")
+                st.info(f"**Model:** {job['model']} \n\n **WO:** {job['work_order']} \n\n **อาการเสีย:** {job['failure']}")
                 if job.get('user_image'):
-                    urls = str(job['user_image']).split(',')
-                    for u in urls:
-                        if u: st.image(u.strip(), caption="รูปประกอบจากจุดที่เสีย", use_container_width=True)
-            
+                    for img in str(job['user_image']).split(','):
+                        if img: st.image(img.strip(), caption="รูปประกอบจาก User", use_container_width=True)
+
             with c2:
-                st.subheader("🛠️ บันทึกการแก้ไข")
-                with st.form("tech_repair"):
-                    final_stat = st.radio("สรุปสถานะ:", ["Complate", "Scrap"], horizontal=True)
-                    action_txt = st.text_area("วิธีการแก้ไข / Action")
-                    remark_txt = st.text_input("หมายเหตุ (ถ้ามี)")
-                    t_files = st.file_uploader("📸 ถ่ายรูปยืนยันหลังซ่อม", accept_multiple_files=True)
+                st.subheader("บันทึกการซ่อม")
+                with st.form("tech_action"):
+                    res_status = st.radio("สรุปงาน:", ["Complate", "Scrap"], horizontal=True)
+                    action_detail = st.text_input("Action (สิ่งที่ทำ)")
+                    remark_detail = st.text_area("หมายเหตุ")
+                    t_files = st.file_uploader("📸 แนบรูปถ่ายหลังซ่อม", accept_multiple_files=True)
                     
-                    if st.form_submit_button("✅ บันทึกและแจ้งเตือน LINE"):
-                        with st.spinner("กำลังอัปโหลดและบันทึกข้อมูล..."):
-                            t_urls = upload_to_cloudinary(t_files, "TECH", sn_scan)
-                            time_now = datetime.now().strftime("%Y-%m-%d %H:%M")
-                            
-                            # อัปเดต Google Sheets: B(Status), K(Action), M(Remark), N(TechID), O(Time), Q(Image)
-                            ws_main.update(f'B{idx}', [[final_stat]])
-                            ws_main.update(f'K{idx}:O{idx}', [[action_txt, "", remark_txt, user_now, time_now]])
-                            ws_main.update(f'Q{idx}', [[t_urls]])
-                            
-                            send_line(f"✅ งาน {final_stat}!\nSN: {sn_scan}\nโดยช่าง: {user_now}\nAction: {action_txt}")
-                            st.success("บันทึกข้อมูลสำเร็จ!"); time.sleep(1.5); st.rerun()
+                    if st.form_submit_button("บันทึกปิดงาน"):
+                        with st.spinner("กำลังส่งข้อมูล..."):
+                            t_urls = upload_images(t_files, "TECH", sn_scan)
+                            now_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                            ws_main.update(f'B{row_idx}', [[res_status]])
+                            ws_main.update(f'K{row_idx}:O{row_idx}', [[action_detail, "", "", remark_detail, current_user, now_time]])
+                            ws_main.update(f'Q{row_idx}', [[t_urls]])
+                            send_line(f"✅ งาน {res_status}!\nSN: {sn_scan}\nโดยช่าง: {current_user}")
+                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
         else:
-            st.warning("⚠️ ไม่พบรายการที่ค้างซ่อมสำหรับ Serial Number นี้")
+            st.warning("⚠️ ไม่พบงานที่ค้างซ่อมสำหรับ SN นี้")
 
 # --- [USER PAGE] ---
 elif role == "user":
-    st.header(f"🚀 แบบฟอร์มแจ้งซ่อม ({mode_now})")
-    # เลือกดึงข้อมูล Model ตามโหมดที่เลือกตอน Login
-    sheet_model = "model_machine" if mode_now == "Machine" else "model_mat"
-    df_m = get_df(sheet_model)
+    st.header(f"🚀 ส่งข้อมูลแจ้งซ่อม ({app_mode})")
+    target_sheet = "model_machine" if app_mode == "Machine" else "model_mat"
+    df_models = get_df(target_sheet)
     
-    with st.container():
-        with st.form("user_request_form"):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                sel_model = st.selectbox("เลือก Model", [""] + df_m['model'].tolist())
-                sn_in = st.text_input("Serial Number / Work Order").strip().upper()
-            with col_b:
-                station = st.text_input("Station / กระบวนการ")
-                u_files = st.file_uploader("📸 แนบรูปถ่ายจุดที่เสีย", accept_multiple_files=True)
-            
-            fail_desc = st.text_area("รายละเอียดอาการเสีย")
-            
-            if st.form_submit_button("📤 ส่งข้อมูลแจ้งซ่อม"):
-                if sel_model and sn_in and fail_desc:
-                    with st.spinner("กำลังส่งข้อมูลแจ้งซ่อม..."):
-                        u_urls = upload_to_cloudinary(u_files, "REQ", sn_in)
-                        p_name = df_m[df_m['model']==sel_model].iloc[0]['product_name']
-                        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        
-                        # แถวข้อมูล: A(Type), B(Status), C(WO), D(Model), E(Prod), F(SN), G(ST), H(Fail), I(Time)... P(URL)
-                        row_data = [mode_now, "Pending", "", sel_model, p_name, sn_in, station, fail_desc, now_str, "", "", "", "", "", ""]
-                        ws_main.append_row(row_data + [u_urls])
-                        
-                        send_line(f"🚨 แจ้งซ่อมใหม่ ({mode_now})\nSN: {sn_in}\nModel: {sel_model}\nอาการ: {fail_desc}")
-                        st.success("ส่งข้อมูลสำเร็จ! ระบบกำลังแจ้งเตือนช่าง..."); time.sleep(1.5); st.rerun()
-                else:
-                    st.warning("❗ กรุณากรอกข้อมูล Model, SN และอาการเสียให้ครบถ้วน")
-
+    # กำหนดรายการ Station สำหรับ Dropdown (สามารถเพิ่ม/ลดได้ตามต้องการ)
+    station_list = ["TEST", "SMT", "DIP", "PRE-ASSY", "FINAL-ASSY", "OQC", "OTHER"]
+    
+    with st.form("user_request"):
+        col_1, col_2 = st.columns(2)
+        with col_1:
+            sel_model = st.selectbox("เลือก Model", [""] + df_models['model'].tolist())
+            sn_in = st.text_input("Serial Number").strip().upper()
+        with col_2:
+            wo_in = st.text_input("Work Order (WO)").strip().upper()
+            station_in = st.selectbox("Station / กระบวนการ", station_list)
+        
+        u_files = st.file_uploader("📸 แนบรูปถ่ายอาการเสีย", accept_multiple_files=True)
+        fail_in = st.text_area("รายละเอียดอาการเสีย")
+        
+        if st.form_submit_button("ส่งใบแจ้งซ่อม", use_container_width=True):
+            if sel_model and sn_in:
+                with st.spinner("กำลังบันทึกข้อมูล..."):
+                    u_urls = upload_images(u_files, "REQ", sn_in)
+                    p_name = df_models[df_models['model']==sel_model].iloc[0]['product_name']
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    # ลำดับข้อมูล: A(Type), B(Status), C(WO), D(Model), E(Prod), F(SN), G(ST), H(Fail), I(Time)... P(URL)
+                    base_row = [app_mode, "Pending", wo_in, sel_model, p_name, sn_in, station_in, fail_in, now_str, "", "", "", "", "", ""]
+                    ws_main.append_row(base_row + [u_urls])
+                    
+                    send_line(f"🚨 มีงานใหม่! ({app_mode})\nSN: {sn_in}\nWO: {wo_in}\nอาการ: {fail_in}")
+                    st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+            else:
+                st.warning("กรุณากรอก Model และ Serial Number ให้ครบถ้วน")
 # --- [ADMIN SECTION] ---
 elif role in ["admin", "super admin"]:
     st.header("📊 Dashboard")
