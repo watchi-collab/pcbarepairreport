@@ -151,11 +151,9 @@ if role == "tech":
         recent = df_h[(df_h['status'] != "Pending") & (df_h['category'] == app_mode)].tail(10)
         st.table(recent[['user_time', 'serial_number', 'status', 'real_case']])
 
-# --- 5. [USER PAGE - SEPARATED TABS] ---
+# --- 5. [USER PAGE] ---
 elif role == "user":
     st.header(f"🚀 Repair Management System ({app_mode})")
-    
-    # สร้าง Tabs เพื่อแยกหน้า
     tab_request, tab_tracking = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามงาน & ประวัติ"])
 
     # --- Tab 1: แจ้งซ่อมใหม่ ---
@@ -175,28 +173,22 @@ elif role == "user":
                 wo = st.text_input("Work Order (WO)").strip().upper()
                 stat = st.selectbox("Station", [""] + (df_st['station'].tolist() if not df_st.empty else []))
                 fail = st.text_area("รายละเอียดอาการเสีย")
-            
             up_imgs = st.file_uploader("📸 แนบรูปภาพประกอบ", accept_multiple_files=True)
-            
             if st.form_submit_button("📤 ส่งข้อมูลแจ้งซ่อม", use_container_width=True):
                 if sel_m and sn and wo:
-                    with st.spinner("กำลังส่งข้อมูล..."):
-                        u_urls = upload_images(up_imgs, "REQ", sn)
-                        now_s = datetime.now().strftime("%Y-%m-%d %H:%M")
-                        row_data = [app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", ""]
-                        ws_main.append_row(row_data + [u_urls])
-                        send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nModel: {sel_m}\nโดย: {current_user}")
-                        st.success("ส่งแจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
-                else:
-                    st.warning("กรุณากรอกข้อมูล Model, SN และ WO ให้ครบถ้วน")
+                    u_urls = upload_images(up_imgs, "REQ", sn)
+                    now_s = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    row_data = [app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", ""]
+                    ws_main.append_row(row_data + [u_urls])
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nโดย: {current_user}")
+                    st.success("ส่งแจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
 
     # --- Tab 2: ติดตามงาน & ประวัติ ---
     with tab_tracking:
         st.subheader("📊 ตรวจสอบสถานะงาน")
-        
         c_search, c_refresh = st.columns([3, 1])
         with c_search:
-            search_query = st.text_input("🔍 ค้นหาด้วย Serial Number หรือ Model", key="user_search").strip().upper()
+            search_query = st.text_input("🔍 ค้นหาด้วย SN หรือ Model", key="user_search_input").strip().upper()
         with c_refresh:
             st.write(" ")
             if st.button("🔄 รีเฟรชสถานะ", use_container_width=True): st.rerun()
@@ -204,17 +196,18 @@ elif role == "user":
         df_s = get_df("sheet1")
         if not df_s.empty and 'category' in df_s.columns:
             all_jobs = df_s[df_s['category'] == app_mode]
-            
             if search_query:
                 filtered_jobs = all_jobs[(all_jobs['serial_number'].astype(str).str.contains(search_query)) | 
                                          (all_jobs['model'].astype(str).str.contains(search_query))]
             else:
-                filtered_jobs = all_jobs.tail(10) # ถ้าไม่หา โชว์ 10 งานล่าสุด
+                filtered_jobs = all_jobs.tail(10)
 
             if not filtered_jobs.empty:
-                filtered_jobs = filtered_jobs.iloc[::-1] # ล่าสุดขึ้นบน
-                for _, row in filtered_jobs.iterrows():
-                    # แสดงผลแบบ Expander
+                # เรียงลำดับให้ล่าสุดอยู่บน
+                filtered_jobs = filtered_jobs.iloc[::-1]
+                
+                # --- จุดที่แก้ไข: ใช้ enumerate เพื่อเอา index มาทำเป็น key ของปุ่ม ---
+                for idx, row in filtered_jobs.iterrows():
                     status_color = "🟠" if row['status'] == "Pending" else ("🟢" if row['status'] == "Complate" else "🔴")
                     with st.expander(f"{status_color} SN: {row['serial_number']} | Status: {row['status']} | {row['user_time']}"):
                         col_info, col_btn = st.columns([3, 1])
@@ -223,14 +216,15 @@ elif role == "user":
                             st.write(f"**อาการ:** {row['failure']}")
                             if row['status'] != "Pending":
                                 st.success(f"**Action:** {row['action']}")
-                                st.info(f"**Real Case:** {row['real_case']}")
                         with col_btn:
                             if row['status'] == "Pending":
-                                if st.button(f"🔔 ตามช่าง (SN:{row['serial_number'][-4:]})", key=f"fup_{row['serial_number']}"):
+                                # สร้าง Key แบบไม่ซ้ำโดยใช้ index ของ DataFrame
+                                btn_key = f"btn_fup_{idx}_{row['serial_number']}"
+                                if st.button(f"🔔 ตามช่าง", key=btn_key, use_container_width=True):
                                     send_line(f"⚠️ [ตามงานด่วน]\nSN: {row['serial_number']}\nแจ้งโดย: {current_user}")
                                     st.success("ส่งแจ้งเตือนแล้ว!")
             else:
-                st.info("ไม่พบข้อมูลการแจ้งซ่อมที่ตรงกับการค้นหา")
+                st.info("ไม่พบข้อมูล")
 
 # --- [หน้าสำหรับ ADMIN / SUPER ADMIN] ---
 elif role in ["admin", "super admin"]:
