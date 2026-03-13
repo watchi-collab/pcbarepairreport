@@ -8,12 +8,18 @@ import cloudinary.uploader
 import requests
 import time
 import io
+import pytz  # เพิ่มเพื่อจัดการ Timezone
 from datetime import datetime
 from PIL import Image
 
 # --- 1. SETTINGS & CONNECTIONS ---
 st.set_page_config(page_title="Repair Management System", layout="wide")
 SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
+
+# ฟังก์ชันดึงเวลาปัจจุบันแบบไทย
+def get_now():
+    tz = pytz.timezone('Asia/Bangkok')
+    return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
 @st.cache_resource
 def init_all():
@@ -36,18 +42,14 @@ if not success:
 
 # --- 2. HELPERS (LINE NOTIFY) ---
 def send_line(msg):
-    # ดึงค่าจาก Secrets
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
     if not token or not group_id: return
-    
     url = "https://api.line.me/v2/bot/message/push"
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
-    try:
-        requests.post(url, headers=headers, json=payload)
-    except:
-        pass
+    try: requests.post(url, headers=headers, json=payload)
+    except: pass
 
 def get_df(name):
     try:
@@ -129,7 +131,6 @@ if role == "tech":
                     for img in str(job['user_image']).split(','):
                         if img.strip(): st.image(img.strip(), use_container_width=True)
                 
-                # ส่งซ่อม PCBA ต่อจาก Machine
                 if job_cat == "Machine":
                     st.divider()
                     st.subheader("🔁 Link to PCBA Repair")
@@ -137,9 +138,9 @@ if role == "tech":
                         pcba_sn = st.text_input("PCBA Board Serial Number").strip().upper()
                         if st.button("🚀 Confirm Bridge to PCBA"):
                             if pcba_sn:
-                                now_s = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                now_s = get_now() # แก้ไขเวลาที่นี่
                                 link_msg = f"Sent from Machine SN: {sn_scan} | Reason: {job.get('failure')}"
-                                pcba_row = ["PCBA", "Pending", job.get('work_order'), job.get('model'), job.get('product_name'), pcba_sn, "Bridge from Machine", link_msg, now_s, "", "", "", "", "", ""]
+                                pcba_row = ["PCBA", "Pending", job.get('work_order'), job.get('model'), job.get('product_name'), pcba_sn, "Bridge from Machine", link_msg, now_s, "", "", "", "", "", "", ""]
                                 ws_main.append_row(pcba_row)
                                 send_line(f"🛠️ [PCBA Linkage]\nMachine: {sn_scan}\nPCBA SN: {pcba_sn}\nส่งโดย: {current_user}")
                                 st.success("สร้างรายการซ่อมบอร์ดเรียบร้อย!")
@@ -158,12 +159,11 @@ if role == "tech":
                     imgs = st.file_uploader("Upload Repair Image", accept_multiple_files=True)
                     if st.form_submit_button("ยืนยันปิดงาน"):
                         t_urls = upload_images(imgs, "TECH", sn_scan)
-                        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        now_s = get_now() # แก้ไขเวลาที่นี่
                         ws_main.update(f'B{row_idx}', [[res]])
                         ws_main.update(f'J{row_idx}:L{row_idx}', [[case, act, cls]])
-                        ws_main.update(f'N{row_idx}:O{row_idx}', [[current_user, now]])
+                        ws_main.update(f'N{row_idx}:O{row_idx}', [[current_user, now_s]])
                         ws_main.update(f'Q{row_idx}', [[t_urls]])
-                        # --- แจ้งเตือนตอนปิดงาน ---
                         send_line(f"✅ [ปิดงานสำเร็จ]\nSN: {sn_scan}\nสถานะ: {res}\nโดยช่าง: {current_user}")
                         st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
         else:
@@ -192,9 +192,8 @@ elif role == "user":
             if st.form_submit_button("ส่งแจ้งซ่อม"):
                 if sel_m and sn and wo:
                     u_urls = upload_images(u_imgs, "REQ", sn)
-                    now_s = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    now_s = get_now() # แก้ไขเวลาที่นี่
                     ws_main.append_row([app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", "", u_urls])
-                    # --- แจ้งเตือนแจ้งซ่อมใหม่ ---
                     send_line(f"🚨 [แจ้งซ่อมใหม่]\nSN: {sn}\nModel: {sel_m}\nโดย: {current_user}")
                     st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
 
@@ -213,10 +212,11 @@ elif role == "user":
                     col_i, col_b = st.columns([3, 1])
                     with col_i:
                         st.write(f"**Model:** {row['model']} | **Failure:** {row['failure']}")
+                        if row['status'] != "Pending":
+                            st.write(f"**Action:** {row['action']}")
                     with col_b:
                         if row['status'] == "Pending":
                             if st.button("🔔 ตามงาน", key=f"f_{idx}"):
-                                # --- แจ้งเตือนตามงาน ---
                                 send_line(f"⚠️ [ติดตามงานด่วน]\nSN: {row['serial_number']}\nแจ้งโดย: {current_user}")
                                 st.success("ส่งแจ้งเตือนแล้ว")
 # --- [หน้าสำหรับ ADMIN / SUPER ADMIN] ---
