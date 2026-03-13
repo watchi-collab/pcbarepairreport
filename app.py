@@ -40,13 +40,11 @@ ss, success = init_all()
 if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
-# --- 2. HELPERS (LINE & IMAGE) ---
+# --- 2. HELPERS ---
 def send_line(msg):
-    # ดึงค่าจาก secrets (ตรวจเช็คชื่อ Key ใน Streamlit Cloud ให้ตรงกัน)
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
     if not token or not group_id: return
-    
     url = "https://api.line.me/v2/bot/message/push"
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
@@ -79,8 +77,15 @@ def upload_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-# --- 3. LOGIN & SESSION ---
+# --- 3. LOGIN, LOGOUT & SESSION ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
+
+# ฟังก์ชันจัดการ Logout
+def logout():
+    st.session_state.is_logged_in = False
+    st.session_state.user = None
+    st.session_state.role = None
+    st.rerun()
 
 if not st.session_state.is_logged_in:
     st.title("🛡️ Repair System Login")
@@ -96,6 +101,15 @@ if not st.session_state.is_logged_in:
                 st.rerun()
             else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
+
+# --- SIDEBAR WITH LOGOUT ---
+with st.sidebar:
+    st.title(f"👤 {st.session_state.user}")
+    st.write(f"**Role:** {st.session_state.role.upper()}")
+    st.write(f"**Mode:** {st.session_state.app_mode}")
+    st.divider()
+    if st.button("🚪 ออกจากระบบ (Logout)", use_container_width=True, type="primary"):
+        logout()
 
 ws_main = ss.worksheet("sheet1")
 role, current_user, app_mode = st.session_state.role, st.session_state.user, st.session_state.app_mode
@@ -131,7 +145,7 @@ if role == "user":
                     with st.spinner("กำลังอัปโหลดรูปภาพ..."):
                         urls = upload_images(u_imgs, "REQ", sn)
                     ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail, get_now(), "", "", "", "", "", "", urls])
-                    send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nModel: {sel_m}\nอาการ: {fail}\nโดย: {current_user}")
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nModel: {sel_m}\nโดย: {current_user}")
                     st.success("แจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
 
     with t2:
@@ -148,7 +162,7 @@ if role == "user":
                     if row['status'] == "Wait Part":
                         st.warning(f"⏳ รอพาร์ท: {row.get('wait_part_name', 'กำลังจัดหา')}")
                     if row['status'] == "Pending" and st.button("🔔 ตามงานด่วน", key=f"alert_{idx}"):
-                        send_line(f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nModel: {row['model']}\nรอมาตั้งแต่: {row['user_time']}"); st.success("แจ้งเตือนเรียบร้อย")
+                        send_line(f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nModel: {row['model']}"); st.success("แจ้งเตือนเรียบร้อย")
 
 # --- 5. TECH PAGE (Wait Part + Update Alerts) ---
 elif role == "tech":
@@ -174,37 +188,27 @@ elif role == "tech":
                     send_line(f"✅ อัปเดตงาน!\nSN: {sn_scan}\nสถานะ: {res}\nโดยช่าง: {current_user}")
                     st.success("อัปเดตข้อมูลแล้ว!"); time.sleep(1); st.rerun()
 
-# --- 6. ADMIN & SUPER ADMIN ---
+# --- 6. ADMIN DASHBOARD ---
 elif role in ["admin", "super admin"]:
-    st.header("📊 Executive Dashboard")
+    st.header("📊 Executive Summary Dashboard")
     df = get_df("sheet1")
     if not df.empty:
-        # Metrics Summary
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("งานค้าง", len(df[df['status']=="Pending"]))
-        c2.metric("รอพาร์ท", len(df[df['status']=="Wait Part"]))
-        c3.metric("ซ่อมสำเร็จ", len(df[df['status']=="Complate"]))
+        c1.metric("งานค้าง (Pending)", len(df[df['status']=="Pending"]))
+        c2.metric("รอพาร์ท (Wait Part)", len(df[df['status']=="Wait Part"]))
+        c3.metric("ซ่อมเสร็จ", len(df[df['status']=="Complate"]))
         c4.metric("Scrap", len(df[df['status']=="Scrap"]))
-
-        st.divider()
-        # Chart & Analysis
-        df_cls = df[df['classification'] != ""]
-        if not df_cls.empty:
-            st.plotly_chart(px.bar(df_cls, x='classification', color='status', title="วิเคราะห์ตามสาเหตุ"), use_container_width=True)
         
-        # Export Function
+        st.divider()
+        # Daily/Weekly logic would go here as before
+        st.subheader("📦 รายการที่กำลังรอพาร์ท")
+        st.dataframe(df[df['status']=="Wait Part"][['serial_number', 'model', 'wait_part_name', 'user_time']])
+        
         towrite = io.BytesIO()
         df.to_excel(towrite, index=False, engine='openpyxl')
-        st.download_button("📥 Export Report", data=towrite.getvalue(), file_name=f"Report_{get_now()}.xlsx")
-        st.dataframe(df)
+        st.download_button("📥 Export Report to Excel", data=towrite.getvalue(), file_name=f"Report_{get_now()}.xlsx")
 
     if role == "super admin":
-        st.divider()
-        st.header("👮 Super Admin Control")
-        df_u = get_df("users")
-        with st.expander("👤 จัดการผู้ใช้งาน"):
+        with st.expander("👮 Super Admin: Manage Users"):
+            df_u = get_df("users")
             st.table(df_u[['username', 'role']])
-            with st.form("add_user"):
-                nu, np, nr = st.text_input("Username"), st.text_input("Password"), st.selectbox("Role", ["user", "tech", "admin", "super admin"])
-                if st.form_submit_button("เพิ่ม User ใหม่"):
-                    ss.worksheet("users").append_row([nu, np, nr]); st.success("เพิ่มสำเร็จ!"); st.rerun()
