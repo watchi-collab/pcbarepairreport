@@ -117,12 +117,17 @@ if role == "tech":
         job_match = df_all[(df_all['serial_number'].astype(str) == sn_scan) & (df_all['status'] == "Pending")]
         if not job_match.empty:
             job = job_match.iloc[-1]; row_idx = job_match.index[-1] + 2
-            df_class = get_df("classification_dropdowns")
+            
+            # --- จุดที่แก้ไข: ดึงข้อมูลจาก sheet class_dropdowns ---
+            df_class = get_df("class_dropdowns")
             class_list = df_class['classification'].tolist() if not df_class.empty else ["Other"]
 
             c1, c2 = st.columns(2)
             with c1:
-                st.info(f"**Model:** {job.get('model')} | **อาการ:** {job.get('failure')}")
+                # --- จุดที่แก้ไข: เพิ่มการแสดง Product Name ---
+                st.info(f"📦 **Product:** {job.get('product_name')}")
+                st.write(f"**Model:** {job.get('model')} | **อาการ:** {job.get('failure')}")
+                
                 if job.get('user_image'):
                     for img in str(job['user_image']).split(','):
                         if img.strip(): st.image(img.strip(), use_container_width=True)
@@ -150,6 +155,72 @@ if role == "tech":
     if not df_h.empty and 'category' in df_h.columns:
         recent = df_h[(df_h['status'] != "Pending") & (df_h['category'] == app_mode)].tail(10)
         st.table(recent[['user_time', 'serial_number', 'status', 'real_case']])
+
+# --- 5. [USER PAGE] ---
+elif role == "user":
+    st.header(f"🚀 Repair Management System ({app_mode})")
+    tab_request, tab_tracking = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามงาน & ประวัติ"])
+
+    with tab_request:
+        st.subheader("📝 กรอกรายละเอียดการแจ้งซ่อม")
+        df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
+        df_st = get_df("station_dropdowns")
+
+        with st.form("user_req_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                sel_m = st.selectbox("เลือก Model", [""] + (df_m['model'].tolist() if not df_m.empty else []))
+                p_name = df_m[df_m['model'] == sel_m]['product_name'].values[0] if sel_m and not df_m.empty else ""
+                st.text_input("Product Name", value=p_name, disabled=True)
+                sn = st.text_input("Serial Number").strip().upper()
+            with col2:
+                wo = st.text_input("Work Order (WO)").strip().upper()
+                stat = st.selectbox("Station", [""] + (df_st['station'].tolist() if not df_st.empty else []))
+                fail = st.text_area("รายละเอียดอาการเสีย")
+            up_imgs = st.file_uploader("📸 แนบรูปภาพประกอบ", accept_multiple_files=True)
+            if st.form_submit_button("📤 ส่งข้อมูลแจ้งซ่อม", use_container_width=True):
+                if sel_m and sn and wo:
+                    u_urls = upload_images(up_imgs, "REQ", sn)
+                    now_s = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    # คอลัมน์ A=Category, B=Status, C=Work_order, D=Model, E=Product_name...
+                    row_data = [app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", ""]
+                    ws_main.append_row(row_data + [u_urls])
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn}\nโดย: {current_user}")
+                    st.success("ส่งแจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
+
+    with tab_tracking:
+        st.subheader("📊 ตรวจสอบสถานะงาน")
+        c_search, c_refresh = st.columns([3, 1])
+        with c_search:
+            search_query = st.text_input("🔍 ค้นหาด้วย SN หรือ Model", key="user_search_input").strip().upper()
+        with c_refresh:
+            st.write(" ")
+            if st.button("🔄 รีเฟรชสถานะ", use_container_width=True): st.rerun()
+
+        df_s = get_df("sheet1")
+        if not df_s.empty and 'category' in df_s.columns:
+            all_jobs = df_s[df_s['category'] == app_mode]
+            if search_query:
+                filtered_jobs = all_jobs[(all_jobs['serial_number'].astype(str).str.contains(search_query)) | 
+                                         (all_jobs['model'].astype(str).str.contains(search_query))]
+            else:
+                filtered_jobs = all_jobs.tail(10)
+
+            if not filtered_jobs.empty:
+                filtered_jobs = filtered_jobs.iloc[::-1]
+                for idx, row in filtered_jobs.iterrows():
+                    status_color = "🟠" if row['status'] == "Pending" else ("🟢" if row['status'] == "Complate" else "🔴")
+                    with st.expander(f"{status_color} SN: {row['serial_number']} | Status: {row['status']} | {row['user_time']}"):
+                        col_info, col_btn = st.columns([3, 1])
+                        with col_info:
+                            st.write(f"**Model:** {row['model']} | **Product:** {row['product_name']}")
+                            st.write(f"**WO:** {row['work_order']} | **อาการ:** {row['failure']}")
+                        with col_btn:
+                            if row['status'] == "Pending":
+                                btn_key = f"btn_fup_{idx}_{row['serial_number']}"
+                                if st.button(f"🔔 ตามช่าง", key=btn_key, use_container_width=True):
+                                    send_line(f"⚠️ [ตามงานด่วน]\nSN: {row['serial_number']}\nแจ้งโดย: {current_user}")
+                                    st.success("ส่งแจ้งเตือนแล้ว!")
 
 # --- 5. [USER PAGE] ---
 elif role == "user":
