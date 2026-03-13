@@ -8,6 +8,7 @@ import cloudinary.uploader
 import requests
 import time
 import io
+import plotly.express as px  # เพิ่มสำหรับ Dashboard
 from datetime import datetime
 from PIL import Image
 
@@ -19,14 +20,12 @@ SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
 @st.cache_resource
 def init_all():
     try:
-        # Google Sheets
         creds_dict = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
         
-        # Cloudinary (Using dn8n04koh)
         cloudinary.config(
             cloud_name = "dn8n04koh",
             api_key = "352259521151764",
@@ -79,6 +78,14 @@ def get_df(name):
         return df.fillna("")
     except: return pd.DataFrame()
 
+def get_clean_df(name):
+    """ฟังก์ชันดึงข้อมูลแบบคลีน สำหรับใช้ในหน้า Admin"""
+    df = get_df(name)
+    if not df.empty:
+        # ลบแถวที่ไม่มี Serial Number ออก
+        df = df[df['serial_number'] != ""]
+    return df
+
 # --- 4. AUTHENTICATION ---
 if 'is_logged_in' not in st.session_state:
     st.session_state.is_logged_in = False
@@ -95,6 +102,7 @@ if not st.session_state.is_logged_in:
             if not match.empty:
                 st.session_state.update({"is_logged_in": True, "user": u, "role": match.iloc[0]['role'].lower(), "app_mode": mode})
                 st.rerun()
+            else: st.error("Username หรือ Password ไม่ถูกต้อง")
     st.stop()
 
 # --- 5. MAIN LOGIC ---
@@ -103,7 +111,6 @@ role = st.session_state.role
 current_user = st.session_state.user
 app_mode = st.session_state.app_mode
 
-# Sidebar
 with st.sidebar:
     st.title(f"👤 {current_user}")
     st.info(f"Mode: {app_mode}")
@@ -152,8 +159,6 @@ if role == "tech":
 # --- [หน้าสำหรับ USER] ---
 elif role == "user":
     st.header(f"🚀 ใบแจ้งซ่อมใหม่ ({app_mode})")
-    
-    # ดึงข้อมูลจาก Dropdown Sheets (อ้างอิงจากรูปที่คุณส่งมา)
     df_models = get_df("model_machine" if app_mode == "Machine" else "model_mat")
     df_stations = get_df("station_dropdowns")
     
@@ -164,7 +169,6 @@ elif role == "user":
             sn_in = st.text_input("Serial Number").strip().upper()
         with col2:
             wo_in = st.text_input("Work Order (WO)").strip().upper()
-            # Dropdown Station ดึงจาก Sheet "station_dropdowns"
             station_in = st.selectbox("Station / กระบวนการ", [""] + df_stations['station'].tolist())
         
         u_files = st.file_uploader("📸 แนบรูปถ่ายอาการเสีย", accept_multiple_files=True)
@@ -176,18 +180,40 @@ elif role == "user":
                     u_urls = upload_images(u_files, "REQ", sn_in)
                     p_name = df_models[df_models['model']==sel_model].iloc[0]['product_name']
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    
-                    # บันทึกข้อมูลเรียงตาม Column A-Q
                     row = [app_mode, "Pending", wo_in, sel_model, p_name, sn_in, station_in, fail_in, now_str, "", "", "", "", "", ""]
                     ws_main.append_row(row + [u_urls])
-                    
                     send_line(f"🚨 แจ้งซ่อมใหม่!\nSN: {sn_in}\nWO: {wo_in}\nStation: {station_in}")
                     st.success("ส่งข้อมูลสำเร็จ!"); st.rerun()
             else:
                 st.warning("กรุณากรอก Model, SN และ WO ให้ครบถ้วน")
+
+# --- [หน้าสำหรับ ADMIN / SUPER ADMIN] ---
 elif role in ["admin", "super admin"]:
-    st.header("📊 Dashboard")
+    st.header("📊 Dashboard ระบบแจ้งซ่อม")
     df = get_clean_df("sheet1")
+    
     if not df.empty:
-        st.plotly_chart(px.pie(df, names='status', color='status', color_discrete_map={'Pending':'orange','Complate':'green','Scrap':'red'}))
-        st.dataframe(df)
+        # ส่วนแสดง Metrics สรุปผล
+        c1, c2, c3 = st.columns(3)
+        c1.metric("งานค้าง (Pending)", len(df[df['status'] == "Pending"]))
+        c2.metric("ซ่อมเสร็จ (Complate)", len(df[df['status'] == "Complate"]))
+        c3.metric("Scrap", len(df[df['status'] == "Scrap"]))
+        
+        st.divider()
+        
+        col_chart1, col_chart2 = st.columns(2)
+        with col_chart1:
+            st.subheader("สัดส่วนสถานะงาน")
+            fig = px.pie(df, names='status', color='status', 
+                         color_discrete_map={'Pending':'orange','Complate':'green','Scrap':'red'})
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_chart2:
+            st.subheader("งานแยกตาม Model")
+            fig2 = px.bar(df, x='model', color='status', barmode='group')
+            st.plotly_chart(fig2, use_container_width=True)
+
+        st.subheader("📋 ตารางข้อมูลทั้งหมด")
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("ยังไม่มีข้อมูลในระบบ")
