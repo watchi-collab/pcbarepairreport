@@ -8,9 +8,10 @@ import cloudinary.uploader
 import requests
 import time
 import io
-import pytz  # เพิ่มเพื่อจัดการ Timezone
+import pytz 
 from datetime import datetime
 from PIL import Image
+import plotly.express as px  # เพิ่มเพื่อแสดงผลกราฟในหน้า Admin
 
 # --- 1. SETTINGS & CONNECTIONS ---
 st.set_page_config(page_title="Repair Management System", layout="wide")
@@ -40,7 +41,7 @@ ss, success = init_all()
 if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
-# --- 2. HELPERS (LINE NOTIFY) ---
+# --- 2. HELPERS ---
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
@@ -138,7 +139,7 @@ if role == "tech":
                         pcba_sn = st.text_input("PCBA Board Serial Number").strip().upper()
                         if st.button("🚀 Confirm Bridge to PCBA"):
                             if pcba_sn:
-                                now_s = get_now() # แก้ไขเวลาที่นี่
+                                now_s = get_now()
                                 link_msg = f"Sent from Machine SN: {sn_scan} | Reason: {job.get('failure')}"
                                 pcba_row = ["PCBA", "Pending", job.get('work_order'), job.get('model'), job.get('product_name'), pcba_sn, "Bridge from Machine", link_msg, now_s, "", "", "", "", "", "", ""]
                                 ws_main.append_row(pcba_row)
@@ -159,21 +160,19 @@ if role == "tech":
                     imgs = st.file_uploader("Upload Repair Image", accept_multiple_files=True)
                     if st.form_submit_button("ยืนยันปิดงาน"):
                         t_urls = upload_images(imgs, "TECH", sn_scan)
-                        now_s = get_now() # แก้ไขเวลาที่นี่
+                        now_s = get_now()
                         ws_main.update(f'B{row_idx}', [[res]])
                         ws_main.update(f'J{row_idx}:L{row_idx}', [[case, act, cls]])
                         ws_main.update(f'N{row_idx}:O{row_idx}', [[current_user, now_s]])
                         ws_main.update(f'Q{row_idx}', [[t_urls]])
-                        send_line(f"✅ [ปิดงานสำเร็จ]\nSN: {sn_scan}\nสถานะ: {res}\nโดยช่าง: {current_user}")
+                        send_line(f"✅ [ปิดงานสำเร็จ]\nSN: {sn_scan}\nสถานะ: {res}\nช่าง: {current_user}")
                         st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-        else:
-            st.warning("🔍 ไม่พบงานค้างซ่อม")
+        else: st.warning("🔍 ไม่พบงานค้างซ่อม")
 
 # --- 5. [USER PAGE] ---
 elif role == "user":
     st.header(f"🚀 Repair System ({app_mode})")
     tab_req, tab_track = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ติดตามงาน"])
-
     with tab_req:
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
@@ -192,11 +191,10 @@ elif role == "user":
             if st.form_submit_button("ส่งแจ้งซ่อม"):
                 if sel_m and sn and wo:
                     u_urls = upload_images(u_imgs, "REQ", sn)
-                    now_s = get_now() # แก้ไขเวลาที่นี่
+                    now_s = get_now()
                     ws_main.append_row([app_mode, "Pending", wo, sel_m, p_name, sn, stat, fail, now_s, "", "", "", "", "", "", u_urls])
                     send_line(f"🚨 [แจ้งซ่อมใหม่]\nSN: {sn}\nModel: {sel_m}\nโดย: {current_user}")
                     st.success("ส่งข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
-
     with tab_track:
         search_q = st.text_input("🔍 Search SN/Model", key="u_search").strip().upper()
         df_s = get_df("sheet1")
@@ -204,42 +202,37 @@ elif role == "user":
             my_jobs = df_s[df_s['category'] == app_mode]
             if search_q:
                 my_jobs = my_jobs[(my_jobs['serial_number'].astype(str).str.contains(search_q)) | (my_jobs['model'].astype(str).str.contains(search_q))]
-            else:
-                my_jobs = my_jobs.tail(10)
-            
+            else: my_jobs = my_jobs.tail(10)
             for idx, row in my_jobs.iloc[::-1].iterrows():
                 with st.expander(f"📌 {row['status']} | SN: {row['serial_number']} | {row['user_time']}"):
                     col_i, col_b = st.columns([3, 1])
                     with col_i:
                         st.write(f"**Model:** {row['model']} | **Failure:** {row['failure']}")
-                        if row['status'] != "Pending":
-                            st.write(f"**Action:** {row['action']}")
+                        if row['status'] != "Pending": st.write(f"**Action:** {row['action']}")
                     with col_b:
                         if row['status'] == "Pending":
                             if st.button("🔔 ตามงาน", key=f"f_{idx}"):
-                                send_line(f"⚠️ [ติดตามงานด่วน]\nSN: {row['serial_number']}\nแจ้งโดย: {current_user}")
+                                send_line(f"⚠️ [ตามงานด่วน]\nSN: {row['serial_number']}\nโดย: {current_user}")
                                 st.success("ส่งแจ้งเตือนแล้ว")
-# --- [หน้าสำหรับ ADMIN / SUPER ADMIN] ---
+
+# --- 6. [ADMIN PAGE] ---
 elif role in ["admin", "super admin"]:
     st.header("📊 Dashboard ระบบแจ้งซ่อม")
-    df = get_clean_df("sheet1")
+    df = get_df("sheet1") # แก้ไขจาก get_clean_df เป็น get_df
     
     if not df.empty:
-        # ส่วนแสดง Metrics สรุปผล
         c1, c2, c3 = st.columns(3)
         c1.metric("งานค้าง (Pending)", len(df[df['status'] == "Pending"]))
         c2.metric("ซ่อมเสร็จ (Complate)", len(df[df['status'] == "Complate"]))
         c3.metric("Scrap", len(df[df['status'] == "Scrap"]))
         
         st.divider()
-        
         col_chart1, col_chart2 = st.columns(2)
         with col_chart1:
             st.subheader("สัดส่วนสถานะงาน")
             fig = px.pie(df, names='status', color='status', 
                          color_discrete_map={'Pending':'orange','Complate':'green','Scrap':'red'})
             st.plotly_chart(fig, use_container_width=True)
-            
         with col_chart2:
             st.subheader("งานแยกตาม Model")
             fig2 = px.bar(df, x='model', color='status', barmode='group')
