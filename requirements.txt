@@ -8,3 +8,5 @@ google-auth-oauthlib
 Pillow
 requests
 plotly
+gspread
+cloudinary
