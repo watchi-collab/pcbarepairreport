@@ -11,6 +11,8 @@ import io
 import pytz 
 from datetime import datetime
 from PIL import Image
+# --- เพิ่ม Library แปลภาษา ---
+from deep_translator import GoogleTranslator
 
 # --- 1. SETTINGS & CONNECTIONS ---
 st.set_page_config(page_title="Repair Management System PRO", layout="wide")
@@ -40,6 +42,17 @@ if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
 # --- 2. HELPERS ---
+def translate_to_en(text):
+    """ฟังก์ชันตรวจจับภาษาไทยและแปลเป็นอังกฤษอัตโนมัติ"""
+    if not text: return ""
+    try:
+        # ตรวจสอบว่ามีภาษาไทยปนอยู่หรือไม่
+        if any("\u0E00" <= char <= "\u0E7F" for char in text):
+            return GoogleTranslator(source='th', target='en').translate(text)
+        return text
+    except:
+        return text # กรณี Error ให้คืนค่าเดิม
+
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
@@ -112,7 +125,7 @@ with st.sidebar:
 ws_main = ss.worksheet("sheet1")
 role, nick, app_mode = st.session_state.role, st.session_state.nickname, st.session_state.app_mode
 
-# --- 4. USER INTERFACE ---
+# --- 4. USER INTERFACE (With Translation) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
@@ -127,20 +140,19 @@ if role == "user":
             c1.text_input("Product", value=p_val, disabled=True)
             sn = c1.text_input("Serial Number").strip().upper()
             wo = c2.text_input("Work Order").strip().upper()
-            # เพิ่ม Station เข้าหน้าแจ้งซ่อม
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
-            fail = c2.text_area("อาการเสีย (Problem)")
+            fail_th = c2.text_area("อาการเสีย (Problem) - พิมพ์ไทยได้")
             u_imgs = st.file_uploader("แนบรูปภาพ", accept_multiple_files=True)
             
             if st.form_submit_button("ยืนยันแจ้งซ่อม"):
                 if sel_m and sn and wo and stat:
-                    with st.spinner("Uploading Images..."):
+                    with st.spinner("กำลังแปลภาษาและอัปโหลดรูปภาพ..."):
+                        # --- แปลภาษา ---
+                        fail_en = translate_to_en(fail_th)
                         urls = upload_images(u_imgs, "REQ", sn)
                     
-                    # บันทึกลง Sheets
-                    ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail, get_now(), "", "", "", "", "", nick, urls])
+                    ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", nick, urls])
                     
-                    # --- แก้ไขรูปแบบ LINE เพิ่ม Station ---
                     line_msg = (
                         f"🚨 แจ้งซ่อมใหม่!\n"
                         f"Process : {app_mode}\n"
@@ -148,13 +160,14 @@ if role == "user":
                         f"Model : {sel_m}\n"
                         f"Wo : {wo}\n"
                         f"SN : {sn}\n"
-                        f"Problem : {fail}\n"
+                        f"Problem : {fail_en}\n"
                         f"Nickname : {nick}"
                     )
                     send_line(line_msg)
-                    st.success("ส่งข้อมูลและแจ้งเตือน LINE เรียบร้อย!"); time.sleep(1); st.rerun()
+                    st.success(f"แจ้งซ่อมสำเร็จ! (ระบบแปลเป็น: {fail_en})")
+                    time.sleep(1); st.rerun()
                 else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน รวมถึงเลือก Station")
+                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
@@ -172,7 +185,7 @@ if role == "user":
                         msg = f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nStation: {row['station']}\nผู้ตาม: {nick}"
                         send_line(msg); st.success("ส่งแจ้งเตือนแล้ว")
 
-# --- 5. TECH PAGE ---
+# --- 5. TECH PAGE (With Translation) ---
 elif role == "tech":
     st.header("🔧 Technician Workspace")
     sn_scan = st.text_input("🔍 Scan Serial Number").strip().upper()
@@ -186,42 +199,41 @@ elif role == "tech":
                 res = st.radio("สถานะ:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
                 p_name = st.text_input("ชื่อพาร์ทที่รอ (ถ้ามี)")
                 cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                case = st.text_input("สาเหตุจริง")
-                act = st.text_area("วิธีแก้ไข")
+                case_th = st.text_input("สาเหตุจริง (พิมไทยได้)")
+                act_th = st.text_area("วิธีแก้ไข (พิมไทยได้)")
+                
                 if st.form_submit_button("บันทึกการซ่อม"):
+                    with st.spinner("Translating..."):
+                        # --- แปลภาษา ---
+                        case_en = translate_to_en(case_th)
+                        act_en = translate_to_en(act_th)
+
                     ws_main.update(f'B{ridx}', [[res]])
-                    ws_main.update(f'J{ridx}:L{ridx}', [[case, act, cls]])
+                    ws_main.update(f'J{ridx}:L{ridx}', [[case_en, act_en, cls]])
                     ws_main.update(f'M{ridx}', [[p_name]])
                     ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
                     
-                    # แจ้งเตือนปิดงาน
                     send_line(f"✅ ปิดงานเรียบร้อย!\nSN: {sn_scan}\nStatus: {res}\nช่าง: {nick}")
-                    st.success("อัปเดตข้อมูลแล้ว!"); time.sleep(1); st.rerun()
+                    st.success("อัปเดตข้อมูลแล้ว!")
+                    time.sleep(1); st.rerun()
 
-# --- 6. SUPER ADMIN: MANAGE USERS ---
+# --- 6. SUPER ADMIN ---
 elif role == "super admin":
     st.header("👮 Super Admin Control")
     df_u = get_df("users")
-    
     with st.expander("👤 จัดการผู้ใช้งานและชื่อเล่น"):
-        # ตรวจสอบว่ามีคอลัมน์ nickname หรือยัง
         display_cols = ['username', 'role']
-        if 'nickname' in df_u.columns:
-            display_cols.append('nickname')
+        if 'nickname' in df_u.columns: display_cols.append('nickname')
         st.dataframe(df_u[display_cols], use_container_width=True)
         
         with st.form("add_user"):
             st.subheader("➕ เพิ่มผู้ใช้งาน")
-            col1, col2 = st.columns(2)
-            u_in = col1.text_input("Username (Emp ID)")
-            n_in = col1.text_input("Nickname (ชื่อเล่น)")
-            p_in = col2.text_input("Password", type="password")
-            r_in = col2.selectbox("Role", ["user", "tech", "admin", "super admin"])
-            
+            c1, c2 = st.columns(2)
+            u_in = c1.text_input("Username (Emp ID)")
+            n_in = c1.text_input("Nickname (ชื่อเล่น)")
+            p_in = c2.text_input("Password", type="password")
+            r_in = c2.selectbox("Role", ["user", "tech", "admin", "super admin"])
             if st.form_submit_button("เพิ่ม User"):
                 if u_in and n_in and p_in:
-                    # บันทึกลงชีต users (คอลัมน์ 1:User, 2:Pass, 3:Role, 4:Nickname)
                     ss.worksheet("users").append_row([u_in, p_in, r_in, n_in])
                     st.success(f"เพิ่มคุณ {n_in} สำเร็จ!"); time.sleep(1); st.rerun()
-                else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบ")
