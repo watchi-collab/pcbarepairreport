@@ -195,36 +195,77 @@ elif role == "tech":
     with col_main:
         st.header("🔧 Technician Workspace")
         sn_scan = st.text_input("🔍 Scan Serial Number for Analysis").strip().upper()
+        
         if sn_scan:
-            job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
+            # ค้นหางานเฉพาะในหมวดหมู่ที่ช่างเลือก (app_mode) และยังมีสถานะค้างอยู่
+            job = df_all[(df_all['serial_number']==sn_scan) & 
+                         (df_all['category']==app_mode) & 
+                         (df_all['status'].isin(["Pending", "Wait Part"]))]
+            
             if not job.empty:
-                j = job.iloc[-1]; ridx = job.index[-1] + 2
+                j = job.iloc[-1]
+                ridx = job.index[-1] + 2 # คำนวณแถวใน Google Sheets
+                
                 st.info(f"📍 Original Problem: {j['failure']}")
+                
                 with st.form("tech_update"):
+                    st.subheader("Update Analysis")
                     res = st.radio("Next Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
                     p_name = st.text_input("Waiting Part Name (if any)")
-                    cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                    case_th = st.text_input("Root Cause (Thai/En)")
-                    act_th = st.text_area("Action Taken (Thai/En)")
-                    tech_imgs = st.file_uploader("แนบรูปภาพขณะซ่อม/ปิดงาน", accept_multiple_files=True)
                     
-                    if st.form_submit_button("Submit Analysis"):
-                        with st.spinner("Translating & Uploading..."):
-                            case_en = translate_to_en(case_th)
-                            act_en = translate_to_en(act_th)
-                            t_urls = upload_images(tech_imgs, "FIX", sn_scan)
-                        
-                        # อัปเดตข้อมูล (สมมติว่าคอลัมน์ Q คือที่เก็บรูปภาพของ Tech)
-                        ws_main.update(f'B{ridx}', [[res]])
-                        ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, p_name]])
-                        ws_main.update(f'N{ridx}:O{ridx}', [[st.session_state.nickname, get_now()]])
-                        # หากต้องการเก็บรูปภาพ Tech ให้เพิ่ม Column ใน Sheet และ update เพิ่มที่นี่
-                        st.success("Data Updated!"); time.sleep(1); st.rerun()
+                    # ดึง Dropdown จากชีต class_dropdowns
+                    cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
+                    cls = st.selectbox("Classification", cls_list)
+                    
+                    case_th = st.text_input("Root Cause (ไทย/Eng)")
+                    act_th = st.text_area("Action Taken (ไทย/Eng)")
+                    
+                    # ฟังก์ชันแนบรูปภาพฝั่งช่าง
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน", accept_multiple_files=True)
+                    
+                    if st.form_submit_button("Submit Analysis & Close Job"):
+                        if case_th and act_th:
+                            with st.spinner("Translating & Uploading Images..."):
+                                case_en = translate_to_en(case_th)
+                                act_en = translate_to_en(act_th)
+                                # อัปโหลดรูปภาพไป Cloudinary
+                                t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                            
+                            # 1. อัปเดตสถานะ (Column B)
+                            ws_main.update(f'B{ridx}', [[res]])
+                            # 2. อัปเดตข้อมูลการซ่อม (Column J=Case, K=Action, L=Class, M=Part)
+                            ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, p_name]])
+                            # 3. อัปเดตชื่อช่างและเวลา (Column N=Name, O=Time)
+                            ws_main.update(f'N{ridx}:O{ridx}', [[st.session_state.nickname, get_now()]])
+                            # 4. บันทึกรูปภาพจากช่างลง Column Q (ตามตารางในรูปที่คุณเคยส่งมา)
+                            ws_main.update(f'Q{ridx}', [[t_urls]])
+                            
+                            # แจ้งเตือนผ่าน LINE
+                            line_msg = f"✅ ปิดงานเรียบร้อย!\nSN: {sn_scan}\nStatus: {res}\nBy: {st.session_state.nickname}"
+                            send_line(line_msg)
+                            
+                            st.success("Data Updated Successfully!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
+            else:
+                st.error("ไม่พบข้อมูล SN นี้ในระบบ หรือ งานถูกปิดไปแล้ว")
     
     with col_side:
         st.subheader("📋 Pending Jobs")
-        st.dataframe(df_all[df_all['status'].isin(["Pending", "Wait Part"])][['serial_number', 'model', 'status']], height=400)
-
+        # แสดงตารางงานค้างเฉพาะของโหมดที่เลือก (PCBA/Machine)
+        pending_list = df_all[(df_all['category'] == app_mode) & 
+                              (df_all['status'].isin(["Pending", "Wait Part"]))]
+        
+        if not pending_list.empty:
+            st.dataframe(
+                pending_list[['serial_number', 'model', 'status']], 
+                height=500,
+                use_container_width=True
+            )
+        else:
+            st.write("No pending jobs 🎉")
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Control Panel ({app_mode})")
     
