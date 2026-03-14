@@ -11,7 +11,6 @@ import io
 import pytz 
 from datetime import datetime
 from PIL import Image
-# --- เพิ่ม Library แปลภาษา ---
 from deep_translator import GoogleTranslator
 
 # --- 1. SETTINGS & CONNECTIONS ---
@@ -43,15 +42,12 @@ if not success:
 
 # --- 2. HELPERS ---
 def translate_to_en(text):
-    """ฟังก์ชันตรวจจับภาษาไทยและแปลเป็นอังกฤษอัตโนมัติ"""
     if not text: return ""
     try:
-        # ตรวจสอบว่ามีภาษาไทยปนอยู่หรือไม่
         if any("\u0E00" <= char <= "\u0E7F" for char in text):
             return GoogleTranslator(source='th', target='en').translate(text)
         return text
-    except:
-        return text # กรณี Error ให้คืนค่าเดิม
+    except: return text
 
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
@@ -67,7 +63,6 @@ def get_df(name):
     try:
         ws = ss.worksheet(name)
         data = ws.get_all_records()
-        if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
         df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
         return df.fillna("")
@@ -89,7 +84,7 @@ def upload_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-# --- 3. LOGIN & SESSION ---
+# --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 
 if not st.session_state.is_logged_in:
@@ -102,29 +97,38 @@ if not st.session_state.is_logged_in:
             df_u = get_df("users")
             match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
             if not match.empty:
-                nick = match.iloc[0].get('nickname', u)
-                st.session_state.update({
-                    "is_logged_in": True, 
-                    "user": u, 
-                    "nickname": nick,
-                    "role": str(match.iloc[0]['role']).lower(), 
-                    "app_mode": mode
-                })
+                st.session_state.update({"is_logged_in":True, "user":u, "role":str(match.iloc[0]['role']).lower(), "nickname":match.iloc[0].get('nickname', u), "app_mode":mode})
                 st.rerun()
             else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title(f"👤 คุณ {st.session_state.nickname}")
-    st.write(f"**Role:** {st.session_state.role.upper()}")
-    if st.button("🚪 Logout"):
-        st.session_state.is_logged_in = False
-        st.rerun()
-
+# --- 4. MAIN LAYOUT & SIDEBAR (EDIT DATA) ---
 ws_main = ss.worksheet("sheet1")
-role, nick, app_mode = st.session_state.role, st.session_state.nickname, st.session_state.app_mode
+df_all = get_df("sheet1")
+role, app_mode = st.session_state.role, st.session_state.app_mode
 
+with st.sidebar:
+    st.title(f"👤 {st.session_state.nickname}")
+    st.write(f"Mode: {app_mode} | Role: {role.upper()}")
+    
+    # ส่วนแก้ไขข้อมูลด่วนใน Sidebar
+    st.divider()
+    st.subheader("📝 Quick Edit Status")
+    sn_edit = st.text_input("Scan SN to Edit").strip().upper()
+    if sn_edit:
+        edit_row = df_all[df_all['serial_number'] == sn_edit]
+        if not edit_row.empty:
+            with st.expander("Edit Details", expanded=True):
+                new_stat = st.selectbox("Update Status", ["Pending", "Wait Part", "Complate", "Scrap"], index=["Pending", "Wait Part", "Complate", "Scrap"].index(edit_row.iloc[-1]['status']) if edit_row.iloc[-1]['status'] in ["Pending", "Wait Part", "Complate", "Scrap"] else 0)
+                if st.button("Save Changes"):
+                    r_idx = edit_row.index[-1] + 2
+                    ws_main.update(f'B{r_idx}', [[new_stat]])
+                    st.success("Updated!"); time.sleep(1); st.rerun()
+        else: st.warning("SN Not Found")
+    
+    if st.button("🚪 Logout"):
+        st.session_state.is_logged_in = False; st.rerun()
+        
 # --- 4. USER INTERFACE (With Translation) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
@@ -185,55 +189,63 @@ if role == "user":
                         msg = f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nStation: {row['station']}\nผู้ตาม: {nick}"
                         send_line(msg); st.success("ส่งแจ้งเตือนแล้ว")
 
-# --- 5. TECH PAGE (With Translation) ---
 elif role == "tech":
-    st.header("🔧 Technician Workspace")
-    sn_scan = st.text_input("🔍 Scan Serial Number").strip().upper()
-    if sn_scan:
-        df_all = get_df("sheet1")
-        job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
-        if not job.empty:
-            j = job.iloc[-1]; ridx = job.index[-1] + 2
-            st.info(f"📍 อาการ: {j['failure']}")
-            with st.form("tech_update"):
-                res = st.radio("สถานะ:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
-                p_name = st.text_input("ชื่อพาร์ทที่รอ (ถ้ามี)")
-                cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                case_th = st.text_input("สาเหตุจริง (พิมไทยได้)")
-                act_th = st.text_area("วิธีแก้ไข (พิมไทยได้)")
-                
-                if st.form_submit_button("บันทึกการซ่อม"):
-                    with st.spinner("Translating..."):
-                        # --- แปลภาษา ---
-                        case_en = translate_to_en(case_th)
-                        act_en = translate_to_en(act_th)
-
-                    ws_main.update(f'B{ridx}', [[res]])
-                    ws_main.update(f'J{ridx}:L{ridx}', [[case_en, act_en, cls]])
-                    ws_main.update(f'M{ridx}', [[p_name]])
-                    ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
+    col_main, col_side = st.columns([2, 1])
+    
+    with col_main:
+        st.header("🔧 Technician Workspace")
+        sn_scan = st.text_input("🔍 Scan Serial Number for Analysis").strip().upper()
+        if sn_scan:
+            job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
+            if not job.empty:
+                j = job.iloc[-1]; ridx = job.index[-1] + 2
+                st.info(f"📍 Original Problem: {j['failure']}")
+                with st.form("tech_update"):
+                    res = st.radio("Next Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                    p_name = st.text_input("Waiting Part Name (if any)")
+                    cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
+                    case_th = st.text_input("Root Cause (Thai/En)")
+                    act_th = st.text_area("Action Taken (Thai/En)")
+                    tech_imgs = st.file_uploader("แนบรูปภาพขณะซ่อม/ปิดงาน", accept_multiple_files=True)
                     
-                    send_line(f"✅ ปิดงานเรียบร้อย!\nSN: {sn_scan}\nStatus: {res}\nช่าง: {nick}")
-                    st.success("อัปเดตข้อมูลแล้ว!")
-                    time.sleep(1); st.rerun()
+                    if st.form_submit_button("Submit Analysis"):
+                        with st.spinner("Translating & Uploading..."):
+                            case_en = translate_to_en(case_th)
+                            act_en = translate_to_en(act_th)
+                            t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                        
+                        # อัปเดตข้อมูล (สมมติว่าคอลัมน์ Q คือที่เก็บรูปภาพของ Tech)
+                        ws_main.update(f'B{ridx}', [[res]])
+                        ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, p_name]])
+                        ws_main.update(f'N{ridx}:O{ridx}', [[st.session_state.nickname, get_now()]])
+                        # หากต้องการเก็บรูปภาพ Tech ให้เพิ่ม Column ใน Sheet และ update เพิ่มที่นี่
+                        st.success("Data Updated!"); time.sleep(1); st.rerun()
+    
+    with col_side:
+        st.subheader("📋 Pending Jobs")
+        st.dataframe(df_all[df_all['status'].isin(["Pending", "Wait Part"])][['serial_number', 'model', 'status']], height=400)
 
-# --- 6. SUPER ADMIN ---
-elif role == "super admin":
-    st.header("👮 Super Admin Control")
-    df_u = get_df("users")
-    with st.expander("👤 จัดการผู้ใช้งานและชื่อเล่น"):
-        display_cols = ['username', 'role']
-        if 'nickname' in df_u.columns: display_cols.append('nickname')
-        st.dataframe(df_u[display_cols], use_container_width=True)
-        
-        with st.form("add_user"):
-            st.subheader("➕ เพิ่มผู้ใช้งาน")
-            c1, c2 = st.columns(2)
-            u_in = c1.text_input("Username (Emp ID)")
-            n_in = c1.text_input("Nickname (ชื่อเล่น)")
-            p_in = c2.text_input("Password", type="password")
-            r_in = c2.selectbox("Role", ["user", "tech", "admin", "super admin"])
-            if st.form_submit_button("เพิ่ม User"):
-                if u_in and n_in and p_in:
-                    ss.worksheet("users").append_row([u_in, p_in, r_in, n_in])
-                    st.success(f"เพิ่มคุณ {n_in} สำเร็จ!"); time.sleep(1); st.rerun()
+elif role in ["admin", "super admin"]:
+    st.header(f"👮 Admin Control Panel ({app_mode})")
+    
+    # ปุ่มส่งรายงานสรุปเข้า LINE
+    if st.button("📢 ส่งรายงานสรุปยอดปัจจุบันเข้า LINE Group", use_container_width=True, type="primary"):
+        today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
+        df_m = df_all[df_all['category'] == app_mode]
+        msg = f"📊 Manual Summary ({today_str})\nMode: {app_mode}\n"
+        msg += "--------------------------------\n"
+        for wo in df_m['work_order'].unique():
+            wo_df = df_m[df_m['work_order'] == wo]
+            p = len(wo_df[wo_df['status'].isin(['Pending', 'Wait Part'])])
+            d = len(wo_df[wo_df['status'].isin(['Complate', 'Scrap'])])
+            msg += f"WO.{wo}: Total {len(wo_df)} | Pending {p} | Finish {d}\n"
+        send_line(msg)
+        st.success("Sent to LINE!")
+
+    st.divider()
+    # ตารางแบบ Interactive แก้ไขได้เลย (Streamlit Data Editor)
+    st.subheader("📊 Full Data Management (Double-click to edit)")
+    edited_df = st.data_editor(df_all, num_rows="dynamic", use_container_width=True)
+    if st.button("บันทึกการแก้ไขทั้งหมดในตาราง"):
+        # โค้ดส่วนนี้จะวนลูปเขียนทับทั้งแผ่น หรือเลือกเฉพาะแถวที่เปลี่ยน (ขั้นสูง)
+        st.info("ระบบกำลังพัฒนาการบันทึกแบบ Bulk... แนะนำให้ใช้ Sidebar Quick Edit ก่อนครับ")
