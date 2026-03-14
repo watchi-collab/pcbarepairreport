@@ -171,3 +171,57 @@ if role == "user":
                     if st.button("🔔 ตามงานด่วน", key=f"alert_{idx}"):
                         msg = f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nStation: {row['station']}\nผู้ตาม: {nick}"
                         send_line(msg); st.success("ส่งแจ้งเตือนแล้ว")
+
+# --- 5. TECH PAGE ---
+elif role == "tech":
+    st.header("🔧 Technician Workspace")
+    sn_scan = st.text_input("🔍 Scan Serial Number").strip().upper()
+    if sn_scan:
+        df_all = get_df("sheet1")
+        job = df_all[(df_all['serial_number']==sn_scan) & (df_all['status'].isin(["Pending", "Wait Part"]))]
+        if not job.empty:
+            j = job.iloc[-1]; ridx = job.index[-1] + 2
+            st.info(f"📍 อาการ: {j['failure']}")
+            with st.form("tech_update"):
+                res = st.radio("สถานะ:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                p_name = st.text_input("ชื่อพาร์ทที่รอ (ถ้ามี)")
+                cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
+                case = st.text_input("สาเหตุจริง")
+                act = st.text_area("วิธีแก้ไข")
+                if st.form_submit_button("บันทึกการซ่อม"):
+                    ws_main.update(f'B{ridx}', [[res]])
+                    ws_main.update(f'J{ridx}:L{ridx}', [[case, act, cls]])
+                    ws_main.update(f'M{ridx}', [[p_name]])
+                    ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
+                    
+                    # แจ้งเตือนปิดงาน
+                    send_line(f"✅ ปิดงานเรียบร้อย!\nSN: {sn_scan}\nStatus: {res}\nช่าง: {nick}")
+                    st.success("อัปเดตข้อมูลแล้ว!"); time.sleep(1); st.rerun()
+
+# --- 6. SUPER ADMIN: MANAGE USERS ---
+elif role == "super admin":
+    st.header("👮 Super Admin Control")
+    df_u = get_df("users")
+    
+    with st.expander("👤 จัดการผู้ใช้งานและชื่อเล่น"):
+        # ตรวจสอบว่ามีคอลัมน์ nickname หรือยัง
+        display_cols = ['username', 'role']
+        if 'nickname' in df_u.columns:
+            display_cols.append('nickname')
+        st.dataframe(df_u[display_cols], use_container_width=True)
+        
+        with st.form("add_user"):
+            st.subheader("➕ เพิ่มผู้ใช้งาน")
+            col1, col2 = st.columns(2)
+            u_in = col1.text_input("Username (Emp ID)")
+            n_in = col1.text_input("Nickname (ชื่อเล่น)")
+            p_in = col2.text_input("Password", type="password")
+            r_in = col2.selectbox("Role", ["user", "tech", "admin", "super admin"])
+            
+            if st.form_submit_button("เพิ่ม User"):
+                if u_in and n_in and p_in:
+                    # บันทึกลงชีต users (คอลัมน์ 1:User, 2:Pass, 3:Role, 4:Nickname)
+                    ss.worksheet("users").append_row([u_in, p_in, r_in, n_in])
+                    st.success(f"เพิ่มคุณ {n_in} สำเร็จ!"); time.sleep(1); st.rerun()
+                else:
+                    st.warning("กรุณากรอกข้อมูลให้ครบ")
