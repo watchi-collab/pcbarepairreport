@@ -97,21 +97,26 @@ if not st.session_state.is_logged_in:
             df_u = get_df("users")
             match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
             if not match.empty:
-                st.session_state.update({"is_logged_in":True, "user":u, "role":str(match.iloc[0]['role']).lower(), "nickname":match.iloc[0].get('nickname', u), "app_mode":mode})
+                st.session_state.update({
+                    "is_logged_in":True, 
+                    "user":u, 
+                    "role":str(match.iloc[0]['role']).lower(), 
+                    "nickname":match.iloc[0].get('nickname', u), 
+                    "app_mode":mode
+                })
                 st.rerun()
             else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
 
-# --- 4. MAIN LAYOUT & SIDEBAR (EDIT DATA) ---
+# --- 4. MAIN DATA ---
 ws_main = ss.worksheet("sheet1")
 df_all = get_df("sheet1")
 role, app_mode = st.session_state.role, st.session_state.app_mode
+nick = st.session_state.nickname
 
 with st.sidebar:
-    st.title(f"👤 {st.session_state.nickname}")
+    st.title(f"👤 {nick}")
     st.write(f"Mode: {app_mode} | Role: {role.upper()}")
-    
-    # ส่วนแก้ไขข้อมูลด่วนใน Sidebar
     st.divider()
     st.subheader("📝 Quick Edit Status")
     sn_edit = st.text_input("Scan SN to Edit").strip().upper()
@@ -119,17 +124,21 @@ with st.sidebar:
         edit_row = df_all[df_all['serial_number'] == sn_edit]
         if not edit_row.empty:
             with st.expander("Edit Details", expanded=True):
-                new_stat = st.selectbox("Update Status", ["Pending", "Wait Part", "Complate", "Scrap"], index=["Pending", "Wait Part", "Complate", "Scrap"].index(edit_row.iloc[-1]['status']) if edit_row.iloc[-1]['status'] in ["Pending", "Wait Part", "Complate", "Scrap"] else 0)
+                # ใช้ "Complate" ตามในชีตของคุณ
+                current_stat = edit_row.iloc[-1]['status']
+                stat_options = ["Pending", "Wait Part", "Complate", "Scrap"]
+                idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
+                new_stat = st.selectbox("Update Status", stat_options, index=idx_stat)
                 if st.button("Save Changes"):
                     r_idx = edit_row.index[-1] + 2
-                    ws_main.update(f'B{r_idx}', [[new_stat]])
+                    ws_main.update_acell(f'B{r_idx}', new_stat)
                     st.success("Updated!"); time.sleep(1); st.rerun()
         else: st.warning("SN Not Found")
     
     if st.button("🚪 Logout"):
         st.session_state.is_logged_in = False; st.rerun()
         
-# --- 4. USER INTERFACE (With Translation) ---
+# --- 5. USER INTERFACE ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
@@ -140,7 +149,11 @@ if role == "user":
         with st.form("req_form"):
             c1, c2 = st.columns(2)
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
-            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
+            p_val = ""
+            if sel_m:
+                matched_p = df_m[df_m['model']==sel_m]['product_name'].values
+                p_val = matched_p[0] if len(matched_p) > 0 else ""
+                
             c1.text_input("Product", value=p_val, disabled=True)
             sn = c1.text_input("Serial Number").strip().upper()
             wo = c2.text_input("Work Order").strip().upper()
@@ -151,33 +164,23 @@ if role == "user":
             if st.form_submit_button("ยืนยันแจ้งซ่อม"):
                 if sel_m and sn and wo and stat:
                     with st.spinner("กำลังแปลภาษาและอัปโหลดรูปภาพ..."):
-                        # --- แปลภาษา ---
                         fail_en = translate_to_en(fail_th)
                         urls = upload_images(u_imgs, "REQ", sn)
                     
-                    ws_main.append_row([app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", nick, urls])
+                    # ลำดับคอลัมน์ A-P (A=Cat, B=Stat, C=WO, D=Model, E=Prod, F=SN, G=Stat, H=Fail, I=Time, J-O=Empty, P=UserImg)
+                    new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
+                    ws_main.append_row(new_row)
                     
-                    line_msg = (
-                        f"🚨 แจ้งซ่อมใหม่!\n"
-                        f"Process : {app_mode}\n"
-                        f"Station : {stat}\n"
-                        f"Model : {sel_m}\n"
-                        f"Wo : {wo}\n"
-                        f"SN : {sn}\n"
-                        f"Problem : {fail_en}\n"
-                        f"Nickname : {nick}"
-                    )
+                    line_msg = f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nStation: {stat}\nModel: {sel_m}\nSN: {sn}\nProblem: {fail_en}\nBy: {nick}"
                     send_line(line_msg)
-                    st.success(f"แจ้งซ่อมสำเร็จ! (ระบบแปลเป็น: {fail_en})")
+                    st.success(f"แจ้งซ่อมสำเร็จ!")
                     time.sleep(1); st.rerun()
-                else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+                else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
 
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
-        df_s = get_df("sheet1")
-        if not df_s.empty:
-            my_jobs = df_s[df_s['category'] == app_mode]
+        if not df_all.empty:
+            my_jobs = df_all[df_all['category'] == app_mode]
             if search_q:
                 my_jobs = my_jobs[(my_jobs['serial_number'].astype(str).str.contains(search_q)) | (my_jobs['model'].astype(str).str.contains(search_q))]
             
@@ -189,6 +192,7 @@ if role == "user":
                         msg = f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nStation: {row['station']}\nผู้ตาม: {nick}"
                         send_line(msg); st.success("ส่งแจ้งเตือนแล้ว")
 
+# --- 6. TECHNICIAN INTERFACE ---
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     
@@ -197,96 +201,68 @@ elif role == "tech":
         sn_scan = st.text_input("🔍 Scan Serial Number for Analysis").strip().upper()
         
         if sn_scan:
-            # ค้นหางานเฉพาะในหมวดหมู่ที่ช่างเลือก (app_mode) และยังมีสถานะค้างอยู่
-            job = df_all[(df_all['serial_number']==sn_scan) & 
-                         (df_all['category']==app_mode) & 
-                         (df_all['status'].isin(["Pending", "Wait Part"]))]
+            job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
             
             if not job.empty:
                 j = job.iloc[-1]
-                ridx = job.index[-1] + 2 # คำนวณแถวใน Google Sheets
-                
+                ridx = job.index[-1] + 2 
                 st.info(f"📍 Original Problem: {j['failure']}")
                 
                 with st.form("tech_update"):
                     st.subheader("Update Analysis")
                     res = st.radio("Next Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
                     p_name = st.text_input("Waiting Part Name (if any)")
-                    
-                    # ดึง Dropdown จากชีต class_dropdowns
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
-                    
                     case_th = st.text_input("Root Cause (ไทย/Eng)")
                     act_th = st.text_area("Action Taken (ไทย/Eng)")
-                    
-                    # ฟังก์ชันแนบรูปภาพฝั่งช่าง
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน", accept_multiple_files=True)
                     
                     if st.form_submit_button("Submit Analysis & Close Job"):
                         if case_th and act_th:
-                            with st.spinner("Translating & Uploading Images..."):
+                            with st.spinner("Processing..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
-                                # อัปโหลดรูปภาพไป Cloudinary
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                             
-                            # 1. อัปเดตสถานะ (Column B)
-                            ws_main.update(f'B{ridx}', [[res]])
-                            # 2. อัปเดตข้อมูลการซ่อม (Column J=Case, K=Action, L=Class, M=Part)
-                            ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, p_name]])
-                            # 3. อัปเดตชื่อช่างและเวลา (Column N=Name, O=Time)
-                            ws_main.update(f'N{ridx}:O{ridx}', [[st.session_state.nickname, get_now()]])
-                            # 4. บันทึกรูปภาพจากช่างลง Column Q (ตามตารางในรูปที่คุณเคยส่งมา)
-                            ws_main.update(f'Q{ridx}', [[t_urls]])
+                            # อัปเดต Column B (Status)
+                            ws_main.update_acell(f'B{ridx}', res)
+                            # อัปเดต J-O (Case, Action, Class, Part, TechID, Time)
+                            repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
+                            ws_main.update(f'J{ridx}:O{ridx}', repair_info)
+                            # อัปเดต Q (Tech Image)
+                            ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                            # แจ้งเตือนผ่าน LINE
-                            line_msg = f"✅ ปิดงานเรียบร้อย!\nSN: {sn_scan}\nStatus: {res}\nBy: {st.session_state.nickname}"
-                            send_line(line_msg)
-                            
-                            st.success("Data Updated Successfully!")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
-            else:
-                st.error("ไม่พบข้อมูล SN นี้ในระบบ หรือ งานถูกปิดไปแล้ว")
+                            send_line(f"✅ ซ่อมเสร็จแล้ว!\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
+                            st.success("Data Updated!"); time.sleep(1); st.rerun()
+                        else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
+            else: st.error("ไม่พบข้อมูล SN นี้ หรือ งานถูกปิดไปแล้ว")
     
     with col_side:
         st.subheader("📋 Pending Jobs")
-        # แสดงตารางงานค้างเฉพาะของโหมดที่เลือก (PCBA/Machine)
-        pending_list = df_all[(df_all['category'] == app_mode) & 
-                              (df_all['status'].isin(["Pending", "Wait Part"]))]
-        
+        pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         if not pending_list.empty:
-            st.dataframe(
-                pending_list[['serial_number', 'model', 'status']], 
-                height=500,
-                use_container_width=True
-            )
-        else:
-            st.write("No pending jobs 🎉")
+            st.dataframe(pending_list[['serial_number', 'model', 'status']], height=500, use_container_width=True)
+        else: st.write("No pending jobs 🎉")
+
+# --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Control Panel ({app_mode})")
     
-    # ปุ่มส่งรายงานสรุปเข้า LINE
     if st.button("📢 ส่งรายงานสรุปยอดปัจจุบันเข้า LINE Group", use_container_width=True, type="primary"):
         today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
         df_m = df_all[df_all['category'] == app_mode]
-        msg = f"📊 Manual Summary ({today_str})\nMode: {app_mode}\n"
-        msg += "--------------------------------\n"
+        msg = f"📊 Summary ({today_str})\nMode: {app_mode}\n" + "-"*20 + "\n"
         for wo in df_m['work_order'].unique():
+            if not wo: continue
             wo_df = df_m[df_m['work_order'] == wo]
             p = len(wo_df[wo_df['status'].isin(['Pending', 'Wait Part'])])
             d = len(wo_df[wo_df['status'].isin(['Complate', 'Scrap'])])
-            msg += f"WO.{wo}: Total {len(wo_df)} | Pending {p} | Finish {d}\n"
+            msg += f"WO.{wo}: Total {len(wo_df)} | Pend {p} | Done {d}\n"
         send_line(msg)
         st.success("Sent to LINE!")
 
     st.divider()
-    # ตารางแบบ Interactive แก้ไขได้เลย (Streamlit Data Editor)
-    st.subheader("📊 Full Data Management (Double-click to edit)")
-    edited_df = st.data_editor(df_all, num_rows="dynamic", use_container_width=True)
-    if st.button("บันทึกการแก้ไขทั้งหมดในตาราง"):
-        # โค้ดส่วนนี้จะวนลูปเขียนทับทั้งแผ่น หรือเลือกเฉพาะแถวที่เปลี่ยน (ขั้นสูง)
-        st.info("ระบบกำลังพัฒนาการบันทึกแบบ Bulk... แนะนำให้ใช้ Sidebar Quick Edit ก่อนครับ")
+    st.subheader("📊 Full Data Management")
+    st.data_editor(df_all, num_rows="dynamic", use_container_width=True)
+    st.info("💡 Use Sidebar 'Quick Edit' for reliable status updates.")
