@@ -41,14 +41,6 @@ if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
 # --- 2. HELPERS ---
-def translate_to_en(text):
-    if not text: return ""
-    try:
-        if any("\u0E00" <= char <= "\u0E7F" for char in text):
-            return GoogleTranslator(source='th', target='en').translate(text)
-        return text
-    except: return text
-
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
@@ -58,6 +50,41 @@ def send_line(msg):
     payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
     try: requests.post(url, headers=headers, json=payload)
     except: pass
+
+# เพิ่มฟังก์ชันสรุปรายงานตามที่คุณต้องการ
+def send_daily_summary(df, app_mode):
+    today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
+    df_mode = df[df['category'] == app_mode]
+    
+    msg = f"📊 รายงาน Repair ประจำวันที่ {today_str}\nส่วนงาน: {app_mode}\n"
+    msg += "--------------------------------\n"
+    
+    for wo in df_mode['work_order'].unique():
+        if not wo: continue
+        wo_df = df_mode[df_mode['work_order'] == wo]
+        pending = len(wo_df[wo_df['status'].isin(['Pending', 'Wait Part'])])
+        done = len(wo_df[wo_df['status'].isin(['Complate', 'Scrap'])])
+        msg += f"WO.{wo}: ทั้งหมด {len(wo_df)} | ค้าง {pending} | เสร็จ {done}\n"
+    
+    msg += "--------------------------------\n📍 สรุปภาพรวม\n"
+    if app_mode == "Machine":
+        for stn in df_mode['station'].unique():
+            if not stn: continue
+            s_df = df_mode[df_mode['station'] == stn]
+            msg += f"ST.{stn}: ทั้งหมด {len(s_df)} (ค้าง {len(s_df[s_df['status'].isin(['Pending', 'Wait Part'])])})\n"
+    else:
+        msg += f"ยอดรวม {len(df_mode)} บอร์ด"
+    
+    send_line(msg)
+    st.success("ส่งสรุปรายงานเข้า LINE เรียบร้อยแล้ว")
+
+def translate_to_en(text):
+    if not text: return ""
+    try:
+        if any("\u0E00" <= char <= "\u0E7F" for char in text):
+            return GoogleTranslator(source='th', target='en').translate(text)
+        return text
+    except: return text
 
 def get_df(name):
     try:
@@ -124,7 +151,6 @@ with st.sidebar:
         edit_row = df_all[df_all['serial_number'] == sn_edit]
         if not edit_row.empty:
             with st.expander("Edit Details", expanded=True):
-                # ใช้ "Complate" ตามในชีตของคุณ
                 current_stat = edit_row.iloc[-1]['status']
                 stat_options = ["Pending", "Wait Part", "Complate", "Scrap"]
                 idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
@@ -167,7 +193,7 @@ if role == "user":
                         fail_en = translate_to_en(fail_th)
                         urls = upload_images(u_imgs, "REQ", sn)
                     
-                    # ลำดับคอลัมน์ A-P (A=Cat, B=Stat, C=WO, D=Model, E=Prod, F=SN, G=Stat, H=Fail, I=Time, J-O=Empty, P=UserImg)
+                    # ลำดับคอลัมน์ A-P (P=user_image)
                     new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                     ws_main.append_row(new_row)
                     
@@ -225,15 +251,12 @@ elif role == "tech":
                                 act_en = translate_to_en(act_th)
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                             
-                            # อัปเดต Column B (Status)
                             ws_main.update_acell(f'B{ridx}', res)
-                            # อัปเดต J-O (Case, Action, Class, Part, TechID, Time)
                             repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
                             ws_main.update(f'J{ridx}:O{ridx}', repair_info)
-                            # อัปเดต Q (Tech Image)
                             ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                            send_line(f"✅ ซ่อมเสร็จแล้ว!\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
+                            send_line(f"✅ ปิดงาน!\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
                             st.success("Data Updated!"); time.sleep(1); st.rerun()
                         else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
             else: st.error("ไม่พบข้อมูล SN นี้ หรือ งานถูกปิดไปแล้ว")
@@ -249,20 +272,10 @@ elif role == "tech":
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Control Panel ({app_mode})")
     
+    # ปุ่มเรียกใช้ฟังก์ชันที่คุณต้องการ
     if st.button("📢 ส่งรายงานสรุปยอดปัจจุบันเข้า LINE Group", use_container_width=True, type="primary"):
-        today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
-        df_m = df_all[df_all['category'] == app_mode]
-        msg = f"📊 Summary ({today_str})\nMode: {app_mode}\n" + "-"*20 + "\n"
-        for wo in df_m['work_order'].unique():
-            if not wo: continue
-            wo_df = df_m[df_m['work_order'] == wo]
-            p = len(wo_df[wo_df['status'].isin(['Pending', 'Wait Part'])])
-            d = len(wo_df[wo_df['status'].isin(['Complate', 'Scrap'])])
-            msg += f"WO.{wo}: Total {len(wo_df)} | Pend {p} | Done {d}\n"
-        send_line(msg)
-        st.success("Sent to LINE!")
+        send_daily_summary(df_all, app_mode)
 
     st.divider()
     st.subheader("📊 Full Data Management")
     st.data_editor(df_all, num_rows="dynamic", use_container_width=True)
-    st.info("💡 Use Sidebar 'Quick Edit' for reliable status updates.")
