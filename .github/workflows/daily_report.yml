@@ -2,21 +2,20 @@ name: Send Daily Repair Report
 
 on:
   schedule:
-    # 10:00 UTC คือ 17:00 เวลาไทย
-    - cron: '0 10 * * *'
-  workflow_dispatch: # ให้เรากดสั่งรันเองเพื่อทดสอบได้
+    - cron: '0 10 * * *' # ส่งทุกวันเวลา 17:00 น. ไทย
+  workflow_dispatch:      # ปุ่มกดทดสอบเอง
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.11' # อัปเดตเวอร์ชัน Python ให้ใหม่ขึ้น
 
       - name: Install dependencies
         run: |
@@ -24,7 +23,8 @@ jobs:
 
       - name: Run report script
         env:
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          LINE_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          # ต้องตรงกับชื่อใน GitHub Secrets
+          GCP_JSON_DATA: ${{ secrets.GCP_JSON_DATA }}
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
         run: python daily_report.py
