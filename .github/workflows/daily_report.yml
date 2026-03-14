@@ -1,0 +1,30 @@
+name: Send Daily Repair Report
+
+on:
+  schedule:
+    # 10:00 UTC คือ 17:00 เวลาไทย
+    - cron: '0 10 * * *'
+  workflow_dispatch: # ให้เรากดสั่งรันเองเพื่อทดสอบได้
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas gspread oauth2client requests pytz
+
+      - name: Run report script
+        env:
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          LINE_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
+        run: python daily_report.py
