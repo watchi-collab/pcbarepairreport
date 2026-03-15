@@ -98,7 +98,7 @@ def send_daily_summary(df, app_mode):
     pending_df = df_mode[df_mode['status'] == 'Pending']
     wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
     done_today_df = df_mode[
-        (df_mode['status'].isin(['Complate', 'Scrap'])) & 
+        (df_mode['status'].isin(['Complete', 'Scrap'])) & 
         (df_mode['tech_time'].astype(str).str.contains(today_date))
     ]
     
@@ -116,7 +116,7 @@ def send_daily_summary(df, app_mode):
             cnt_pending = len(wo_data[wo_data['status'] == 'Pending'])
             cnt_wait = len(wo_data[wo_data['status'] == 'Wait Part'])
             cnt_done_today = len(wo_data[
-                (wo_data['status'].isin(['Complate', 'Scrap'])) & 
+                (wo_data['status'].isin(['Complete', 'Scrap'])) & 
                 (wo_data['tech_time'].astype(str).str.contains(today_date))
             ])
             
@@ -143,7 +143,7 @@ def send_daily_summary(df, app_mode):
             s_pending = len(stn_data[stn_data['status'] == 'Pending'])
             s_wait = len(stn_data[stn_data['status'] == 'Wait Part'])
             s_done = len(stn_data[
-                (stn_data['status'].isin(['Complate', 'Scrap'])) & 
+                (stn_data['status'].isin(['Complete', 'Scrap'])) & 
                 (stn_data['tech_time'].astype(str).str.contains(today_date))
             ])
             
@@ -238,7 +238,7 @@ with st.sidebar:
         if not edit_row.empty:
             with st.expander("Edit Status Only", expanded=True):
                 current_stat = edit_row.iloc[-1]['status']
-                stat_options = ["Pending", "Wait Part", "Complate", "Scrap"]
+                stat_options = ["Pending", "Wait Part", "Complete", "Scrap"]
                 idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
                 new_stat = st.selectbox("Update Status", stat_options, index=idx_stat)
                 if st.button("Save Changes"):
@@ -298,7 +298,7 @@ elif role == "tech":
                 display_user_images(j.get('user_image', ''))
                 
                 with st.form("tech_update"):
-                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                    res = st.radio("Status:", ["Complete", "Scrap", "Wait Part"], horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
@@ -318,8 +318,8 @@ elif role == "tech":
                             if t_urls: 
                                 ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                           # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
-                            if res in ["Complate", "Scrap"]:
+                           # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complete หรือ Scrap
+                            if res in ["Complete", "Scrap"]:
                                 try:
                                     tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
                                     tech_msg += f"SN: {sn_scan}\n"
@@ -355,7 +355,7 @@ elif role in ["admin", "super admin"]:
     m1.metric("งานทั้งหมด", f"{len(df_report)} {unit}")
     m2.metric("วิเคราะห์อยู่", f"{len(df_report[df_report['status']=='Pending'])} {unit}")
     m3.metric("รออะไหล่", f"{len(df_report[df_report['status']=='Wait Part'])} {unit}")
-    m4.metric("ปิดงานแล้ว", f"{len(df_report[df_report['status'].isin(['Complate', 'Scrap'])])} {unit}")
+    m4.metric("ปิดงานแล้ว", f"{len(df_report[df_report['status'].isin(['Complete', 'Scrap'])])} {unit}")
 
     tab_daily, tab_weekly, tab_monthly, tab_manage = st.tabs(["📅 รายงานวันนี้", "📊 รายสัปดาห์", "🗓️ รายเดือน", "🛠️ Raw Data"])
     
@@ -374,7 +374,7 @@ elif role in ["admin", "super admin"]:
         if not weekly_df.empty:
             # 1. สรุปภาพรวมด้วย Metrics
             c1, c2, c3 = st.columns(3)
-            w_done = len(weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])])
+            w_done = len(weekly_df[weekly_df['status'].isin(['Complete', 'Scrap'])])
             w_wait = len(weekly_df[weekly_df['status'] == 'Wait Part'])
             c1.metric("ซ่อมเสร็จสัปดาห์นี้", f"{w_done} {unit}")
             c2.metric("รอพาร์ทใหม่", f"{w_wait} {unit}")
@@ -447,7 +447,7 @@ elif role in ["admin", "super admin"]:
         st.subheader(f"Monthly: {start_mo.strftime('%B %Y')}")
         monthly_df = df_report[df_report['tech_datetime'] >= start_mo]
         if not monthly_df.empty:
-            st.write(f"ปิดงานสะสม: {len(monthly_df[monthly_df['status'].isin(['Complate', 'Scrap'])])}")
+            st.write(f"ปิดงานสะสม: {len(monthly_df[monthly_df['status'].isin(['Complete', 'Scrap'])])}")
             if 'classification' in monthly_df.columns:
                 st.bar_chart(monthly_df['classification'].value_counts().head(5))
                 # --- เพิ่มแท็บ "ค้นหารูปภาพ (Image Gallery)" ---
