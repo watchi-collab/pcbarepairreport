@@ -318,23 +318,27 @@ elif role == "tech":
                             if t_urls: 
                                 ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                            # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
+                           # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
                             if res in ["Complate", "Scrap"]:
                                 try:
                                     tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
                                     tech_msg += f"SN: {sn_scan}\n"
                                     tech_msg += f"สถานะ: {res}\n"
-                            
-                                   
+                                    
                                     tech_msg += f"การแก้ไข: {act_th}\n"
                                     tech_msg += f"ช่างผู้ดูแล: {nick}"
                                     
+                                    # --- บรรทัดสำคัญที่ต้องเพิ่ม ---
+                                    send_line(tech_msg) 
+                                    # ----------------------------
+                                    
+                                except Exception as e:
+                                    # แจ้งเตือนเบาๆ ถ้า LINE มีปัญหา แต่ไม่ขัดจังหวะการบันทึก Sheets
+                                    st.warning(f"ระบบบันทึกแล้ว แต่ส่ง LINE ไม่สำเร็จ: {e}")
 
                             st.success("บันทึกสำเร็จ!")
                             time.sleep(1.5)
                             st.rerun()
-                        else:
-                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
             else:
                 st.error("ไม่พบข้อมูล Serial Number นี้ในระบบ")
     with col_side:
