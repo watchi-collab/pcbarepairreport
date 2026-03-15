@@ -296,6 +296,7 @@ elif role == "tech":
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2
                 display_user_images(j.get('user_image', ''))
+                
                 with st.form("tech_update"):
                     res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
@@ -304,16 +305,42 @@ elif role == "tech":
                     case_th = st.text_input("Root Cause")
                     act_th = st.text_area("Action Taken")
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
+                    
                     if st.form_submit_button("บันทึกข้อมูล"):
                         if case_th and act_th:
                             case_en = translate_to_en(case_th)
                             act_en = translate_to_en(act_th)
                             t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                            
+                            # 1. บันทึกข้อมูลลง Google Sheets
                             ws_main.update_acell(f'B{ridx}', res)
                             ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
-                            if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-            else: st.error("ไม่พบข้อมูล")
+                            if t_urls: 
+                                ws_main.update_acell(f'Q{ridx}', t_urls)
+                            
+                            # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
+                            if res in ["Complate", "Scrap"]:
+                                try:
+                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
+                                    tech_msg += f"SN: {sn_scan}\n"
+                                    tech_msg += f"สถานะ: {res}\n"
+                            
+                                   
+                                    tech_msg += f"การแก้ไข: {act_th}\n"
+                                    tech_msg += f"ช่างผู้ดูแล: {nick}"
+                                    
+                                    send_line(tech_msg)
+                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
+                                except Exception as e:
+                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
+
+                            st.success("บันทึกสำเร็จ!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
+            else:
+                st.error("ไม่พบข้อมูล Serial Number นี้ในระบบ")
     with col_side:
         st.subheader("📋 Pending Jobs")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
