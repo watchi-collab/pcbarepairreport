@@ -57,7 +57,23 @@ def display_user_images(url_string):
     for idx, url in enumerate(urls):
         with cols[idx % 4]:
             st.image(url, caption=f"อาการเสีย #{idx+1}", use_container_width=True)
+            
+# --- ฟังก์ชันช่วยคำนวณช่วงเวลา ---
+def get_report_periods():
+    tz = pytz.timezone('Asia/Bangkok')
+    now = datetime.now(tz)
+    
+    # หาวันจันทร์ของสัปดาห์นี้ (Start of current week)
+    start_of_week = now - timedelta(days=now.weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # หาวันแรกของเดือนนี้
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    return start_of_week, start_of_month
 
+# เรียกใช้ในส่วน Admin
+start_wk, start_mo = get_report_periods()
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
@@ -315,11 +331,67 @@ elif role == "tech":
             st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
         else:
             st.write("No pending jobs 🎉")
-# --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
-    st.header(f"👮 Admin Panel ({app_mode})")
-    if st.button("📢 ส่งรายงานสรุปยอดปัจจุบันเข้า LINE Group", use_container_width=True, type="primary"):
-        send_daily_summary(df_all, app_mode)
+    st.header(f"📊 Executive Summary: {app_mode}")
+    
+    # สร้าง Tab สำหรับแยกมุมมอง
+    tab_daily, tab_weekly, tab_monthly = st.tabs(["รายงานรายวัน", "สรุปรายสัปดาห์ (Mon-Sun)", "สรุปรายเดือน"])
+
+    # ดึงข้อมูลและแปลงวันที่ให้ใช้งานได้
+    df_report = df_all[df_all['category'] == app_mode].copy()
+    df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce')
+
+    # --- TAB: รายวัน (เดิม) ---
+    with tab_daily:
+        st.subheader("📌 Daily Performance")
+        # (ใส่โค้ด Metric และกราฟรายวันที่เคยทำไว้)
+
+    # --- TAB: รายสัปดาห์ (จันทร์ - อาทิตย์) ---
+    with tab_weekly:
+        st.subheader(f"📅 Weekly Report: {start_wk.strftime('%d %b')} - Present")
+        
+        # กรองข้อมูลเฉพาะสัปดาห์ปัจจุบัน
+        weekly_df = df_report[df_report['tech_datetime'] >= start_wk]
+        
+        col1, col2, col3 = st.columns(3)
+        w_done = len(weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])])
+        w_pend = len(df_report[df_report['status'].isin(['Pending', 'Wait Part'])]) # งานค้างนับทั้งหมด
+        
+        col1.metric("ซ่อมเสร็จสัปดาห์นี้", f"{w_done} {unit}")
+        col2.metric("งานค้างสะสม", f"{w_pend} {unit}")
+        col3.metric("เป้าหมายสัปดาห์", "100%", delta=f"{w_done} units")
+
+        # กราฟยอดซ่อมเสร็จรายวันในสัปดาห์นี้
+        if not weekly_df.empty:
+            weekly_chart = weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])]
+            daily_summary = weekly_chart.groupby(weekly_chart['tech_datetime'].dt.day_name()).size()
+            # จัดเรียงวันจันทร์-อาทิตย์
+            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            daily_summary = daily_summary.reindex(days_order, fill_value=0)
+            st.line_chart(daily_summary)
+            st.caption("กราฟแสดงจำนวนงานที่ซ่อมเสร็จในแต่ละวันของสัปดาห์นี้")
+
+    # --- TAB: รายเดือน ---
+    with tab_monthly:
+        st.subheader(f"🗓️ Monthly Overview: {start_mo.strftime('%B %Y')}")
+        
+        # กรองข้อมูลเฉพาะเดือนปัจจุบัน
+        monthly_df = df_report[df_report['tech_datetime'] >= start_mo]
+        
+        m_col1, m_col2 = st.columns(2)
+        m_done = len(monthly_df[monthly_df['status'].isin(['Complate', 'Scrap'])])
+        
+        m_col1.info(f"ยอดซ่อมเสร็จรวมทั้งเดือน: **{m_done} {unit}**")
+        
+        # แสดง Top 5 อาการเสียประจำเดือน (Classification)
+        if 'classification' in monthly_df.columns:
+            st.write("**Top 5 Root Causes this Month**")
+            m_cls = monthly_df['classification'].value_counts().head(5)
+            st.bar_chart(m_cls)
+
+    # --- ส่วนปุ่ม Export ข้อมูลสำหรับรายงานประชุม ---
     st.divider()
-    st.subheader("📊 Full Data Management")
-    st.data_editor(df_all, num_rows="dynamic", use_container_width=True)
+    if st.checkbox("Show Data for Report (เตรียมข้อมูลไปลงสไลด์)"):
+        report_type = st.radio("เลือกประเภทข้อมูล", ["สัปดาห์นี้", "เดือนนี้"], horizontal=True)
+        data_to_show = weekly_df if report_type == "สัปดาห์นี้" else monthly_df
+        st.dataframe(data_to_show, use_container_width=True)
