@@ -226,57 +226,43 @@ elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
         st.header("🔧 Technician Workspace")
-        sn_scan_input = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข (English Only)").strip()
-        sn_scan = validate_sn(sn_scan_input)
-        
+        sn_scan = validate_sn(st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข (English Only)").strip())
         if sn_scan:
             job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode) & (df_all['status'].isin(["Pending", "Wait Part", "Complate"]))]
             if not job.empty:
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
+                # --- โชว์รูปจาก User ---
+                with st.expander("📸 รูปภาพอาการเสียจาก User", expanded=True):
+                    display_images_from_url(j.get('user_image', ''), "อาการเสีย")
+                
                 if j['status'] == "Complate": st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
                 st.info(f"📍 Original Problem: {j['failure']}")
-                with st.expander("📸 ดูรูปภาพอาการเสียจาก User", expanded=True):
-                    # คอลัมน์ P ใน DataFrame (df_all) จะใช้ชื่อตาม Header ในชีต 
-                    # ถ้าใช้ get_df แบบที่เขียนไว้ ชื่อคอลัมน์จะเป็น 'user_image'
-                    display_user_images(j.get('user_image', ''))
-                # --------------------------------------
-
-                if j['status'] == "Complate": 
-                    st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
                 
-                st.info(f"📍 Original Problem: {j['failure']}")
-                
-               
                 with st.form("tech_update"):
-                    current_res = j['status'] if j['status'] in ["Complate", "Scrap", "Wait Part"] else "Complate"
-                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(current_res), horizontal=True)
+                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(j['status']) if j['status'] in ["Complate", "Scrap", "Wait Part"] else 0, horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
-                    current_cls = j.get('classification', "")
-                    cls_idx = cls_list.index(current_cls) if current_cls in cls_list else 0
-                    cls = st.selectbox("Classification", cls_list, index=cls_idx)
+                    cls = st.selectbox("Classification", cls_list, index=cls_list.index(j.get('classification', "")) if j.get('classification', "") in cls_list else 0)
                     case_th = st.text_input("Root Cause", value=j.get('real_case', ""))
                     act_th = st.text_area("Action Taken", value=j.get('action', ""))
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพเพิ่มเติม (Column Q)", accept_multiple_files=True)
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน (Column Q)", accept_multiple_files=True)
                     if st.form_submit_button("บันทึกข้อมูล"):
                         if case_th and act_th:
-                            with st.spinner("Processing..."):
+                            with st.spinner("Updating..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                             ws_main.update_acell(f'B{ridx}', res)
-                            repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
-                            ws_main.update(f'J{ridx}:O{ridx}', repair_info)
+                            ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
                             if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                        else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
-            else: st.error("ไม่พบข้อมูล SN นี้ (ตรวจสอบภาษาคีย์บอร์ด)")
+                        else: st.warning("กรุณากรอกข้อมูลให้ครบ")
+            else: st.error("ไม่พบข้อมูล SN นี้")
     with col_side:
         st.subheader("📋 Pending Jobs")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         st.dataframe(pending_list[['serial_number', 'model', 'status']], height=500, use_container_width=True) if not pending_list.empty else st.write("No pending jobs 🎉")
-
 # --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Panel ({app_mode})")
