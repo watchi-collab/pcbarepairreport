@@ -226,15 +226,14 @@ elif role == "tech":
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
                 
-                # --- แสดงรูปภาพที่ User ส่งมา ---
+                # --- แสดงรูปภาพที่ User ส่งมา (คอลัมน์ P) ---
                 with st.expander("📸 ดูรูปภาพอาการเสียจาก User", expanded=True):
                     display_user_images(j.get('user_image', ''))
                 
-                if j['status'] == "Complate": st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
+                if j['status'] == "Complate": st.warning("⚠️ งานนี้ซ่อมเสร็จแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
                 st.info(f"📍 Original Problem: {j['failure']}")
                 
                 with st.form("tech_update"):
-                    st.subheader("Update Analysis & Actions")
                     current_res = j['status'] if j['status'] in ["Complate", "Scrap", "Wait Part"] else "Complate"
                     res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(current_res), horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
@@ -244,11 +243,11 @@ elif role == "tech":
                     cls = st.selectbox("Classification", cls_list, index=cls_idx)
                     case_th = st.text_input("Root Cause", value=j.get('real_case', ""))
                     act_th = st.text_area("Action Taken", value=j.get('action', ""))
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพการซ่อม/ปิดงาน (Column Q)", accept_multiple_files=True)
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน (Column Q)", accept_multiple_files=True)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
                         if case_th and act_th:
-                            with st.spinner("Updating Data..."):
+                            with st.spinner("Updating..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
@@ -257,13 +256,18 @@ elif role == "tech":
                                 ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
                                 if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                        else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
-            else: st.error("ไม่พบข้อมูล SN นี้ในระบบ (ตรวจสอบภาษาคีย์บอร์ด)")
+                        else: st.warning("กรุณากรอกข้อมูลให้ครบ")
+            else: st.error("ไม่พบข้อมูล SN นี้")
+
     with col_side:
         st.subheader("📋 Pending Jobs")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
-        st.dataframe(pending_list[['serial_number', 'model', 'status']], height=500, use_container_width=True) if not pending_list.empty else st.write("No pending jobs 🎉")
-
+        if not pending_list.empty:
+            display_df = pending_list[['serial_number', 'model', 'status']].copy()
+            display_df.columns = ['Serial Number', 'Model', 'Status']
+            st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
+        else:
+            st.write("No pending jobs 🎉")
 # --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Panel ({app_mode})")
