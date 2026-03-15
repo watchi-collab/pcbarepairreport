@@ -9,6 +9,7 @@ import requests
 import time
 import io
 import pytz 
+import re # เพิ่มสำหรับกรองตัวอักษร
 from datetime import datetime
 from PIL import Image
 from deep_translator import GoogleTranslator
@@ -41,6 +42,13 @@ if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
 # --- 2. HELPERS ---
+def validate_sn(text):
+    """กรองให้เหลือเฉพาะภาษาอังกฤษและตัวเลขเท่านั้น"""
+    if not text: return ""
+    # ถ้ามีภาษาไทยปนมา ให้แจ้งเตือนผ่าน Session State (ถ้าจำเป็น) หรือกรองออกเลย
+    cleaned = re.sub(r'[^a-zA-Z0-9]', '', text).upper()
+    return cleaned
+
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
     group_id = st.secrets.get("line_group_id")
@@ -135,7 +143,9 @@ with st.sidebar:
     st.write(f"Mode: {app_mode} | Role: {role.upper()}")
     st.divider()
     st.subheader("📝 Quick Edit Status")
-    sn_edit = st.text_input("Scan SN to Edit").strip().upper()
+    sn_edit_input = st.text_input("Scan SN to Edit").strip()
+    sn_edit = validate_sn(sn_edit_input) # กรองภาษาไทยออก
+    
     if sn_edit:
         edit_row = df_all[df_all['serial_number'] == sn_edit]
         if not edit_row.empty:
@@ -167,7 +177,13 @@ if role == "user":
                 matched_p = df_m[df_m['model']==sel_m]['product_name'].values
                 p_val = matched_p[0] if len(matched_p) > 0 else ""
             c1.text_input("Product", value=p_val, disabled=True)
-            sn = c1.text_input("Serial Number").strip().upper()
+            
+            # รับค่า SN และกรองทันที
+            sn_input = c1.text_input("Serial Number (Eng/Num Only)").strip()
+            sn = validate_sn(sn_input)
+            if any("\u0E00" <= char <= "\u0E7F" for char in sn_input):
+                st.warning("⚠️ ตรวจพบภาษาไทย! ระบบกรองให้เหลือเฉพาะ Eng/ตัวเลข")
+            
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail_th = c2.text_area("อาการเสีย (Problem) - พิมพ์ไทยได้")
@@ -179,8 +195,8 @@ if role == "user":
                         urls = upload_images(u_imgs, "REQ", sn)
                     new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                     ws_main.append_row(new_row)
-                    send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nStation: {stat}\nModel: {sel_m}\nSN: {sn}\nBy: {nick}")
-                    st.success("แจ้งซ่อมสำเร็จ!"); time.sleep(1); st.rerun()
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nBy: {nick}")
+                    st.success(f"บันทึก SN: {sn} เรียบร้อย!"); time.sleep(1); st.rerun()
                 else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
@@ -199,9 +215,10 @@ elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
         st.header("🔧 Technician Workspace")
-        sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข").strip().upper()
+        sn_scan_input = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข (English Only)").strip()
+        sn_scan = validate_sn(sn_scan_input)
+        
         if sn_scan:
-            # ค้นหาทั้งงานค้างและงานที่ Complate เพื่อให้แก้ไขได้
             job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode) & (df_all['status'].isin(["Pending", "Wait Part", "Complate"]))]
             if not job.empty:
                 j = job.iloc[-1]
@@ -229,10 +246,9 @@ elif role == "tech":
                             repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
                             ws_main.update(f'J{ridx}:O{ridx}', repair_info)
                             if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                            send_line(f"✅ บันทึกงาน!\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
                         else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
-            else: st.error("ไม่พบข้อมูล SN นี้ หรือผิดแผนก")
+            else: st.error("ไม่พบข้อมูล SN นี้ (ตรวจสอบภาษาคีย์บอร์ด)")
     with col_side:
         st.subheader("📋 Pending Jobs")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
