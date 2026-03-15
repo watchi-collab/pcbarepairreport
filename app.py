@@ -218,55 +218,78 @@ if role == "user":
                         msg = f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nStation: {row['station']}\nผู้ตาม: {nick}"
                         send_line(msg); st.success("ส่งแจ้งเตือนแล้ว")
 
-# --- 6. TECHNICIAN INTERFACE ---
+# --- 6. TECHNICIAN INTERFACE (ปรับปรุงให้แก้ไขงานที่เสร็จแล้วได้) ---
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     
     with col_main:
         st.header("🔧 Technician Workspace")
-        sn_scan = st.text_input("🔍 Scan Serial Number for Analysis").strip().upper()
+        sn_scan = st.text_input("🔍 Scan SN สำหรับวิเคราะห์ หรือ แก้ไขงาน (Edit)").strip().upper()
         
         if sn_scan:
-            job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
+            # แก้ไขเงื่อนไข: ให้ค้นหาเจอทั้งงานที่ค้าง (Pending, Wait Part) และงานที่เสร็จแล้ว (Complate)
+            job = df_all[(df_all['serial_number']==sn_scan) & 
+                         (df_all['category']==app_mode) & 
+                         (df_all['status'].isin(["Pending", "Wait Part", "Complate"]))]
             
             if not job.empty:
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
+                
+                # แสดงสถานะปัจจุบัน
+                if j['status'] == "Complate":
+                    st.warning(f"⚠️ งานนี้ซ่อมเสร็จแล้ว คุณกำลังอยู่ในโหมด 'แก้ไขข้อมูล/แนบรูปเพิ่ม'")
+                
                 st.info(f"📍 Original Problem: {j['failure']}")
                 
                 with st.form("tech_update"):
-                    st.subheader("Update Analysis")
-                    res = st.radio("Next Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
-                    p_name = st.text_input("Waiting Part Name (if any)")
-                    cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
-                    cls = st.selectbox("Classification", cls_list)
-                    case_th = st.text_input("Root Cause (ไทย/Eng)")
-                    act_th = st.text_area("Action Taken (ไทย/Eng)")
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน", accept_multiple_files=True)
+                    st.subheader("Update Analysis & Images")
                     
-                    if st.form_submit_button("Submit Analysis & Close Job"):
+                    # ดึงค่าเดิมมาเป็นค่าเริ่มต้น (Default Value)
+                    current_res = j['status'] if j['status'] in ["Complate", "Scrap", "Wait Part"] else "Complate"
+                    res = st.radio("Next Status:", ["Complate", "Scrap", "Wait Part"], 
+                                   index=["Complate", "Scrap", "Wait Part"].index(current_res),
+                                   horizontal=True)
+                    
+                    p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
+                    
+                    cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
+                    current_cls = j.get('classification', "")
+                    cls_idx = cls_list.index(current_cls) if current_cls in cls_list else 0
+                    cls = st.selectbox("Classification", cls_list, index=cls_idx)
+                    
+                    case_th = st.text_input("Root Cause (ไทย/Eng)", value=j.get('real_case', ""))
+                    act_th = st.text_area("Action Taken (ไทย/Eng)", value=j.get('action', ""))
+                    
+                    st.markdown("---")
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพเพิ่มเติม (จะไปบันทึกที่ Column Q)", accept_multiple_files=True)
+                    
+                    submit_label = "Update & Save Changes" if j['status'] == "Complate" else "Submit Analysis & Close Job"
+                    
+                    if st.form_submit_button(submit_label):
                         if case_th and act_th:
-                            with st.spinner("Processing..."):
+                            with st.spinner("กำลังบันทึกข้อมูล..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                                
+                                # กรณีแก้ไขงานเดิมและลืมแนบรูป: ถ้าไม่มีรูปใหม่ ให้ใช้ URL เดิมจากช่อง Q (ถ้ามี)
+                                # แต่ปกติ update_acell จะเขียนทับ ถ้าต้องการเพิ่มรูปต่อจากเดิมต้องมี Logic เพิ่ม
+                                # ในที่นี้จะเขียนทับด้วยรูปใหม่ที่อัปโหลดครับ
+                                
+                                ws_main.update_acell(f'B{ridx}', res)
+                                repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
+                                ws_main.update(f'J{ridx}:O{ridx}', repair_info)
+                                
+                                # บันทึกรูปภาพ (เฉพาะถ้ามีการเลือกไฟล์ใหม่)
+                                if t_urls:
+                                    ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                            ws_main.update_acell(f'B{ridx}', res)
-                            repair_info = [[case_en, act_en, cls, p_name, nick, get_now()]]
-                            ws_main.update(f'J{ridx}:O{ridx}', repair_info)
-                            ws_main.update_acell(f'Q{ridx}', t_urls)
-                            
-                            send_line(f"✅ ปิดงาน!\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
-                            st.success("Data Updated!"); time.sleep(1); st.rerun()
+                            st.success("บันทึกการแก้ไขเรียบร้อยแล้ว!")
+                            time.sleep(1); st.rerun()
                         else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
-            else: st.error("ไม่พบข้อมูล SN นี้ หรือ งานถูกปิดไปแล้ว")
-    
-    with col_side:
-        st.subheader("📋 Pending Jobs")
-        pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
-        if not pending_list.empty:
-            st.dataframe(pending_list[['serial_number', 'model', 'status']], height=500, use_container_width=True)
-        else: st.write("No pending jobs 🎉")
+            else:
+                st.error("ไม่พบข้อมูล SN นี้ในระบบ")
 
 # --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
