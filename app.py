@@ -337,16 +337,85 @@ elif role in ["admin", "super admin"]:
             send_daily_summary(df_all, app_mode)
         st.dataframe(df_report.tail(10), use_container_width=True)
 
+ # --- TAB: รายสัปดาห์ (เจาะลึก Classification & Station) ---
     with tab_weekly:
-        st.subheader(f"Weekly: {start_wk.strftime('%d %b')} - Present")
-        weekly_df = df_report[df_report['tech_datetime'] >= start_wk]
+        st.subheader(f"📊 Weekly Analytics: {start_wk.strftime('%d %b')} - Present")
+        
+        # กรองข้อมูลเฉพาะสัปดาห์นี้
+        weekly_df = df_report[df_report['tech_datetime'] >= start_wk].copy()
+        
         if not weekly_df.empty:
-            weekly_chart = weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])]
-            daily_counts = weekly_chart.groupby(weekly_chart['tech_datetime'].dt.day_name()).size()
-            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            st.bar_chart(daily_counts.reindex(days_order, fill_value=0))
-        else: st.write("ไม่มีข้อมูล")
+            # 1. สรุปภาพรวมด้วย Metrics
+            c1, c2, c3 = st.columns(3)
+            w_done = len(weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])])
+            w_wait = len(weekly_df[weekly_df['status'] == 'Wait Part'])
+            c1.metric("ซ่อมเสร็จสัปดาห์นี้", f"{w_done} {unit}")
+            c2.metric("รอพาร์ทใหม่", f"{w_wait} {unit}")
+            c3.metric("งานใหม่สัปดาห์นี้", f"{len(weekly_df)} {unit}")
 
+            st.divider()
+
+            # 2. วิเคราะห์ตาม Classification และ Station
+            col_left, col_right = st.columns(2)
+
+            with col_left:
+                st.write("🔍 **สาเหตุงานเสีย (Classification)**")
+                if 'classification' in weekly_df.columns and not weekly_df['classification'].isnull().all():
+                    class_counts = weekly_df['classification'].value_counts().reset_index()
+                    class_counts.columns = ['สาเหตุ', 'จำนวน']
+                    st.bar_chart(class_counts.set_index('สาเหตุ'))
+                else:
+                    st.info("ยังไม่มีข้อมูล Classification")
+
+            with col_right:
+                st.write("📍 **สถานีที่เกิดปัญหา (Station)**")
+                if 'station' in weekly_df.columns:
+                    station_counts = weekly_df['station'].value_counts().reset_index()
+                    station_counts.columns = ['Station', 'จำนวน']
+                    st.dataframe(station_counts, use_container_width=True, hide_index=True)
+                else:
+                    st.info("ไม่มีข้อมูล Station")
+
+            # 3. ตารางแจกแจงละเอียด (Heatmap-like Table)
+            st.write("📋 **ตารางสรุปสาเหตุแยกตาม Station**")
+            pivot_df = weekly_df.pivot_table(
+                index='station', 
+                columns='classification', 
+                aggfunc='size', 
+                fill_value=0
+            )
+            st.dataframe(pivot_df, use_container_width=True)
+
+            # 4. ส่วน Export Excel (ย้ายมาไว้ด้านล่างเพื่อให้ดูเป็นขั้นตอนสุดท้าย)
+            st.divider()
+            st.subheader("📥 Download Weekly Analysis")
+            
+            output = io.BytesIO()
+            try:
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    # Sheet 1: ข้อมูลดิบ
+                    weekly_df.to_excel(writer, sheet_name='Weekly_Raw_Data', index=False)
+                    # Sheet 2: สรุป Pivot
+                    pivot_df.to_excel(writer, sheet_name='Station_Class_Summary')
+                    
+                    # ปรับความกว้างคอลัมน์
+                    workbook = writer.book
+                    for worksheet in writer.sheets.values():
+                        worksheet.set_column('A:Z', 18)
+
+                processed_data = output.getvalue()
+                st.download_button(
+                    label="🟢 Download Weekly Report (Excel)",
+                    data=processed_data,
+                    file_name=f'Weekly_Repair_Report_{start_wk.strftime("%Y%m%d")}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"ไม่สามารถสร้างไฟล์ Excel ได้: {e}")
+
+        else:
+            st.warning("⚠️ ยังไม่มีข้อมูลการซ่อมในสัปดาห์นี้")
     with tab_monthly:
         st.subheader(f"Monthly: {start_mo.strftime('%B %Y')}")
         monthly_df = df_report[df_report['tech_datetime'] >= start_mo]
