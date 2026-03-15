@@ -74,9 +74,7 @@ def send_daily_summary(df, app_mode):
     today_date = now.strftime("%Y-%m-%d") 
     today_display = now.strftime("%d/%m/%Y")
     
-    # กรองข้อมูลตาม PCBA หรือ Machine
     df_mode = df[df['category'] == app_mode].copy()
-    
     if df_mode.empty:
         st.warning("ไม่มีข้อมูลสำหรับรายงาน")
         return
@@ -86,15 +84,14 @@ def send_daily_summary(df, app_mode):
     msg += f"ส่วนงาน: {app_mode}\n"
     msg += "--------------------------------\n"
 
-    # กรองงานค้าง (ย้อนหลังทั้งหมด) และงานที่เสร็จ (เฉพาะวันนี้)
+    # กรองงานค้าง (ทุกวัน) และงานเสร็จ (เฉพาะวันนี้)
     pending_df = df_mode[df_mode['status'] == 'Pending']
     wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
     done_today_df = df_mode[
         (df_mode['status'].isin(['Complate', 'Scrap'])) & 
-        (df_mode['tech_time'].astype(str).str.contains(today_date))
+        (df_mode['tech_time'].astype(str).str.contains(today_date)) # เช็คจาก Column O
     ]
     
-    # รวมรายชื่อ WO ที่ต้องรายงาน (มีงานค้าง หรือ เสร็จวันนี้)
     wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
 
     if len(wo_list) == 0:
@@ -104,64 +101,42 @@ def send_daily_summary(df, app_mode):
             if not wo: continue
             wo_data = df_mode[df_mode['work_order'] == wo]
             
-            # คำนวณยอดเฉพาะใน WO นั้นๆ
-            cnt_pending = len(wo_data[wo_data['status'] == 'Pending'])
-            cnt_wait = len(wo_data[wo_data['status'] == 'Wait Part'])
-            cnt_done_today = len(wo_data[
+            p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
+            w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
+            d_cnt = len(wo_data[
                 (wo_data['status'].isin(['Complate', 'Scrap'])) & 
                 (wo_data['tech_time'].astype(str).str.contains(today_date))
             ])
             
-            total_wo = cnt_pending + cnt_wait + cnt_done_today
-            
-            # รายงานเฉพาะ WO ที่มียอดรวมมากกว่า 0 (มีงานค้างหรือเสร็จวันนี้)
-            if total_wo > 0:
+            if (p_cnt + w_cnt + d_cnt) > 0:
                 msg += f"WO. {wo}\n"
-                msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_wo} {unit}\n"
-                msg += f"  - อยู่ระหว่างวิเคราะห์ {cnt_pending} {unit}\n"
-                msg += f"  - รอพาร์ท {cnt_wait} {unit}\n"
-                msg += f"  - ซ่อมเสร็จ {cnt_done_today} {unit}\n"
+                msg += f"จำนวน{unit}ที่เสียทั้งหมด {p_cnt + w_cnt + d_cnt} {unit}\n"
+                msg += f"  - อยู่ระหว่างวิเคราะห์ {p_cnt} {unit}\n"
+                msg += f"  - รอพาร์ท {w_cnt} {unit}\n"
+                msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
 
-    # --- ส่วนสรุปภาพรวม ---
     msg += "--------------------------------\n"
     msg += f"สรุปภาพรวม {app_mode}\n"
     
     if app_mode == "Machine":
-        # แยกตาม Station สำหรับ Machine
         for stn in sorted(df_mode['station'].unique()):
-            if not stn: continue
             stn_data = df_mode[df_mode['station'] == stn]
-            
-            s_pending = len(stn_data[stn_data['status'] == 'Pending'])
-            s_wait = len(stn_data[stn_data['status'] == 'Wait Part'])
-            s_done = len(stn_data[
-                (stn_data['status'].isin(['Complate', 'Scrap'])) & 
-                (stn_data['tech_time'].astype(str).str.contains(today_date))
-            ])
-            
-            total_stn = s_pending + s_wait + s_done
-            if total_stn > 0:
+            s_p = len(stn_data[stn_data['status'] == 'Pending'])
+            s_w = len(stn_data[stn_data['status'] == 'Wait Part'])
+            s_d = len(stn_data[(stn_data['status'].isin(['Complate', 'Scrap'])) & (stn_data['tech_time'].astype(str).str.contains(today_date))])
+            if (s_p + s_w + s_d) > 0:
                 msg += f"Station: {stn}\n"
-                msg += f"  จำนวน{unit}ที่เสียทั้งหมด {total_stn} {unit}\n"
-                msg += f"    - อยู่ระหว่างวิเคราะห์ {s_pending} {unit}\n"
-                msg += f"    - รอพาร์ท {s_wait} {unit}\n"
-                msg += f"    - ซ่อมเสร็จ {s_done} {unit}\n"
+                msg += f"  - อยู่ระหว่างวิเคราะห์ {s_p} {unit} | รอพาร์ท {s_w} {unit} | ซ่อมเสร็จ {s_d} {unit}\n"
     else:
-        # สรุปยอดรวม PCBA
-        total_p = len(pending_df)
-        total_w = len(wait_part_df)
-        total_d = len(done_today_df)
-        msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_p + total_w + total_d} {unit}\n"
-        msg += f"  - อยู่ระหว่างวิเคราะห์ {total_p} {unit}\n"
-        msg += f"  - รอพาร์ท {total_w} {unit}\n"
-        msg += f"  - ซ่อมเสร็จ {total_d} {unit}\n"
+        msg += f"จำนวน{unit}ที่เสียทั้งหมด {len(pending_df) + len(wait_part_df) + len(done_today_df)} {unit}\n"
+        msg += f"  - อยู่ระหว่างวิเคราะห์ {len(pending_df)} {unit}\n"
+        msg += f"  - รอพาร์ท {len(wait_part_df)} {unit}\n"
+        msg += f"  - ซ่อมเสร็จ {len(done_today_df)} {unit}\n"
 
     msg += "--------------------------------\n"
     msg += f"รายงานโดย: {st.session_state.nickname}"
-    
     send_line(msg)
-    st.success("ส่งรายงานแยกสถานะเรียบร้อยแล้ว")
-
+    st.success("ส่งรายงานเรียบร้อย!")
 def translate_to_en(text):
     if not text: return ""
     try:
