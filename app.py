@@ -423,6 +423,44 @@ elif role in ["admin", "super admin"]:
             st.write(f"ปิดงานสะสม: {len(monthly_df[monthly_df['status'].isin(['Complate', 'Scrap'])])}")
             if 'classification' in monthly_df.columns:
                 st.bar_chart(monthly_df['classification'].value_counts().head(5))
+                # --- เพิ่มแท็บ "ค้นหารูปภาพ (Image Gallery)" ---
+    with tab_manage: # หรือจะสร้าง tab_gallery = st.tabs([...]) เพิ่มก็ได้ครับ
+        st.subheader("🖼️ ค้นหาและดึงรูปภาพเพื่อทำ Report")
+        
+        col_search1, col_search2 = st.columns([2, 1])
+        with col_search1:
+            target_sn = st.text_input("🔍 ระบุ Serial Number เพื่อดูรูปภาพ").strip().upper()
+        
+        if target_sn:
+            # ค้นหาข้อมูลจาก SN ที่ระบุ
+            img_job = df_report[df_report['serial_number'] == target_sn]
+            
+            if not img_job.empty:
+                row = img_job.iloc[-1]
+                
+                c_img1, c_img2 = st.columns(2)
+                
+                with c_img1:
+                    st.write("📸 **รูปจากผู้แจ้งซ่อม (User)**")
+                    user_imgs = str(row.get('user_image', '')).split(',')
+                    if user_imgs[0]:
+                        for u_url in user_imgs:
+                            st.image(u_url, use_container_width=True)
+                            st.code(u_url) # แสดง Link ให้ก๊อปปี้ไปใส่ใน PP ได้เลย
+                    else:
+                        st.info("ไม่มีรูปจากผู้แจ้ง")
+
+                with c_img2:
+                    st.write("🔧 **รูปจากช่างซ่อม (Technician)**")
+                    tech_imgs = str(row.get('tech_image', '')).split(',') # ตรวจสอบคอลัมน์ Q
+                    if tech_imgs[0]:
+                        for t_url in tech_imgs:
+                            st.image(t_url, use_container_width=True)
+                            st.code(t_url) # แสดง Link สำหรับทำ Report
+                    else:
+                        st.info("ไม่มีรูปจากช่าง")
+            else:
+                st.warning("ไม่พบข้อมูล Serial Number นี้ในระบบ")
 
     with tab_manage:
         search_f = st.text_input("Filter Raw Data").upper()
