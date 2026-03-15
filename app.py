@@ -69,26 +69,72 @@ def send_line(msg):
     except: pass
 
 def send_daily_summary(df, app_mode):
-    today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
-    df_mode = df[df['category'] == app_mode]
-    msg = f"📊 รายงาน Repair ประจำวันที่ {today_str}\nส่วนงาน: {app_mode}\n"
+    tz = pytz.timezone('Asia/Bangkok')
+    now = datetime.now(tz)
+    today_date = now.strftime("%Y-%m-%d") # ใช้เช็คกับข้อมูลในระบบ
+    today_display = now.strftime("%d/%m/%Y")
+    
+    # กรองเฉพาะโหมดที่เลือก (PCBA หรือ Machine)
+    df_mode = df[df['category'] == app_mode].copy()
+    
+    if df_mode.empty:
+        st.warning("ไม่มีข้อมูลสำหรับรายงาน")
+        return
+
+    msg = f"📊 รายงาน Repair ({app_mode})\nประจำวันที่ {today_display}\n"
     msg += "--------------------------------\n"
-    for wo in df_mode['work_order'].unique():
-        if not wo: continue
-        wo_df = df_mode[df_mode['work_order'] == wo]
-        pending = len(wo_df[wo_df['status'].isin(['Pending', 'Wait Part'])])
-        done = len(wo_df[wo_df['status'].isin(['Complate', 'Scrap'])])
-        msg += f"WO.{wo}: ทั้งหมด {len(wo_df)} | ค้าง {pending} | เสร็จ {done}\n"
-    msg += "--------------------------------\n📍 สรุปภาพรวม\n"
-    if app_mode == "Machine":
-        for stn in df_mode['station'].unique():
-            if not stn: continue
-            s_df = df_mode[df_mode['station'] == stn]
-            msg += f"ST.{stn}: ทั้งหมด {len(s_df)} (ค้าง {len(s_df[s_df['status'].isin(['Pending', 'Wait Part'])])})\n"
+
+    # 1. หางานที่ซ่อมเสร็จ/Scrap เฉพาะ "วันนี้" เท่านั้น
+    # เช็คจาก repair_date (คอลัมน์ O)
+    done_today_df = df_mode[
+        (df_mode['status'].isin(['Complate', 'Scrap'])) & 
+        (df_mode['repair_date'].str.contains(today_date))
+    ]
+    
+    # 2. หางานที่ค้าง (Pending / Wait Part) ทั้งหมดในระบบ (รวมย้อนหลัง)
+    pending_all_df = df_mode[df_mode['status'].isin(['Pending', 'Wait Part'])]
+    
+    # รวมรายชื่อ WO ที่มีความเคลื่อนไหววันนี้ หรือ มีงานค้าง
+    wo_list = pd.concat([done_today_df, pending_all_df])['work_order'].unique()
+
+    if len(wo_list) == 0:
+        msg += "✅ วันนี้ไม่มีงานค้างและไม่มีงานเสร็จ"
     else:
-        msg += f"ยอดรวม {len(df_mode)} บอร์ด"
+        for wo in wo_list:
+            if not wo: continue
+            msg += f"\n📦 WO: {wo}\n"
+            
+            # --- ส่วนที่ 1: รายงานงานเสร็จ (เฉพาะของวันนี้) ---
+            wo_done = done_today_df[done_today_df['work_order'] == wo]
+            if not wo_done.empty:
+                msg += f"  🟢 ซ่อมเสร็จวันนี้: {len(wo_done)} รายการ\n"
+
+            # --- ส่วนที่ 2: รายงานงานค้าง (ย้อนหลังทั้งหมด) ---
+            wo_pending = pending_all_df[pending_all_df['work_order'] == wo]
+            if not wo_pending.empty:
+                msg += "  ⏳ รายการงานค้าง:\n"
+                for _, row in wo_pending.iterrows():
+                    sn = row['serial_number']
+                    status = row['status']
+                    
+                    if status == "Pending":
+                        status_text = "อยู่ในระหว่างวิเคราะห์"
+                    elif status == "Wait Part":
+                        # ดึงชื่อพาร์ทจากคอลัมน์ wait_part_name
+                        part_name = row.get('wait_part_name', '')
+                        if not part_name or part_name == "":
+                            part_name = "ยังไม่ระบุชื่อพาร์ท"
+                        status_text = f"รอพาร์ท ({part_name})"
+                    else:
+                        status_text = status
+                        
+                    msg += f"    - {sn} : {status_text}\n"
+
+    msg += "\n--------------------------------\n📍 รายงานโดย: " + st.session_state.nickname
+    
+    # ส่งเข้า LINE
     send_line(msg)
-    st.success("ส่งสรุปรายงานเข้า LINE เรียบร้อยแล้ว")
+    st.success("ส่งรายงานเข้า LINE เรียบร้อยแล้ว")
 
 def translate_to_en(text):
     if not text: return ""
