@@ -59,6 +59,17 @@ def send_line(msg):
     try: requests.post(url, headers=headers, json=payload)
     except: pass
 
+# --- เพิ่มฟังก์ชันช่วยแสดงผลรูปภาพในส่วน Helpers ---
+def display_user_images(url_string):
+    if not url_string:
+        st.write("ไม่มีรูปภาพอาการเสียแนบมา")
+        return
+    urls = url_string.split(",")
+    cols = st.columns(len(urls) if len(urls) < 4 else 4) # แสดงสูงสุด 4 รูปต่อแถว
+    for idx, url in enumerate(urls):
+        with cols[idx % 4]:
+            st.image(url, caption=f"อาการเสีย #{idx+1}", use_container_width=True)
+
 def send_daily_summary(df, app_mode):
     today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
     df_mode = df[df['category'] == app_mode]
@@ -225,6 +236,18 @@ elif role == "tech":
                 ridx = job.index[-1] + 2 
                 if j['status'] == "Complate": st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
                 st.info(f"📍 Original Problem: {j['failure']}")
+                with st.expander("📸 ดูรูปภาพอาการเสียจาก User", expanded=True):
+                    # คอลัมน์ P ใน DataFrame (df_all) จะใช้ชื่อตาม Header ในชีต 
+                    # ถ้าใช้ get_df แบบที่เขียนไว้ ชื่อคอลัมน์จะเป็น 'user_image'
+                    display_user_images(j.get('user_image', ''))
+                # --------------------------------------
+
+                if j['status'] == "Complate": 
+                    st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
+                
+                st.info(f"📍 Original Problem: {j['failure']}")
+                
+               
                 with st.form("tech_update"):
                     current_res = j['status'] if j['status'] in ["Complate", "Scrap", "Wait Part"] else "Complate"
                     res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(current_res), horizontal=True)
