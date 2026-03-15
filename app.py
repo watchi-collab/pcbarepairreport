@@ -329,10 +329,6 @@ elif role == "tech":
                                     tech_msg += f"การแก้ไข: {act_th}\n"
                                     tech_msg += f"ช่างผู้ดูแล: {nick}"
                                     
-                                    send_line(tech_msg)
-                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
-                                except Exception as e:
-                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
 
                             st.success("บันทึกสำเร็จ!")
                             time.sleep(1.5)
