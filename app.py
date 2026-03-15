@@ -63,9 +63,10 @@ def display_user_images(url_string):
 # --- ฟังก์ชันช่วยคำนวณช่วงเวลา ---
 def get_report_periods():
     tz = pytz.timezone('Asia/Bangkok')
-    now = datetime.now(tz)
+    # ดึงเวลาปัจจุบันแบบมี Timezone แล้วถอด Timezone ออก (.replace(tzinfo=None))
+    now = datetime.now(tz).replace(tzinfo=None) 
     
-    # หาวันจันทร์ของสัปดาห์นี้ (Start of current week)
+    # หาวันจันทร์ของสัปดาห์นี้
     start_of_week = now - timedelta(days=now.weekday())
     start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
     
@@ -343,7 +344,7 @@ elif role in ["admin", "super admin"]:
     unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
     df_report = df_all[df_all['category'] == app_mode].copy()
     # แปลง tech_time เป็น DateTime Object (Column O)
-    df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce')
+   df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce').dt.tz_localize(None)
 
     # 2. Executive Summary Metrics (รวมทุกอย่าง)
     m1, m2, m3, m4 = st.columns(4)
