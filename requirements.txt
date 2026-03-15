@@ -9,3 +9,4 @@ Pillow
 plotly
 openpyxl
 deep_translator
+xlsxwriter
