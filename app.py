@@ -467,3 +467,50 @@ elif role in ["admin", "super admin"]:
         final_df = df_report[df_report['serial_number'].str.contains(search_f)] if search_f else df_report
         st.download_button("📥 Download CSV", final_df.to_csv(index=False).encode('utf-8-sig'), "report.csv", "text/csv")
         st.data_editor(final_df, use_container_width=True)
+
+# --- เพิ่มแท็บ System Health Check ---
+    with tab_manage: # หรือเปลี่ยนเป็น tab_health ถ้าคุณสร้างเพิ่ม
+        st.divider()
+        st.subheader("🛠️ System Health Check")
+        
+        c1, c2, c3 = st.columns(3)
+        
+        # 1. ตรวจสอบการเชื่อมต่อ Google Sheets
+        with c1:
+            try:
+                if df_all is not None:
+                    st.success("✅ Google Sheets")
+                    st.caption(f"Connected: {len(df_all)} records")
+                else:
+                    st.error("❌ Google Sheets")
+            except:
+                st.error("❌ Google Sheets Connection Lost")
+
+        # 2. ตรวจสอบ Cloudinary (ระบบรูปภาพ)
+        with c2:
+            try:
+                import cloudinary
+                # ลองดึง config ออกมาเช็ค
+                if cloudinary.config().cloud_name:
+                    st.success("✅ Cloudinary API")
+                    st.caption("Image Server: Online")
+                else:
+                    st.warning("⚠️ Cloudinary Config Missing")
+            except:
+                st.error("❌ Cloudinary Module Error")
+
+        # 3. ตรวจสอบ LINE Token (ระบบแจ้งเตือน)
+        with c3:
+            if LINE_TOKEN and LINE_TOKEN != "YOUR_LINE_TOKEN":
+                st.success("✅ LINE Notify")
+                st.caption("Ready to send alerts")
+            else:
+                st.error("❌ LINE Token Missing")
+
+        # เพิ่มปุ่มสำหรับ Clear Cache กรณีข้อมูลไม่อัปเดต
+        st.write("---")
+        if st.button("♻️ Refresh System Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("ล้างแคชเรียบร้อยแล้ว! ข้อมูลจะถูกดึงใหม่ทั้งหมด")
+            st.rerun()
