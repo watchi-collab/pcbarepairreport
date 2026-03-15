@@ -500,12 +500,19 @@ elif role in ["admin", "super admin"]:
                 st.error("❌ Cloudinary Module Error")
 
         # 3. ตรวจสอบ LINE Token (ระบบแจ้งเตือน)
+ # 3. ตรวจสอบ LINE Token (ระบบแจ้งเตือน)
         with c3:
-            if LINE_TOKEN and LINE_TOKEN != "YOUR_LINE_TOKEN":
-                st.success("✅ LINE Notify")
-                st.caption("Ready to send alerts")
-            else:
-                st.error("❌ LINE Token Missing")
+            try:
+                # ดึงค่าโดยตรงจาก secrets เพื่อป้องกัน NameError
+                current_token = st.secrets.get("LINE_TOKEN", "")
+                
+                if current_token and current_token != "YOUR_LINE_TOKEN":
+                    st.success("✅ LINE Notify")
+                    st.caption("Ready to send alerts")
+                else:
+                    st.warning("❌ LINE Token Missing")
+            except:
+                st.error("❌ LINE Secrets Error")
 
         # เพิ่มปุ่มสำหรับ Clear Cache กรณีข้อมูลไม่อัปเดต
         st.write("---")
