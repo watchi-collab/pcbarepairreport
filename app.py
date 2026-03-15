@@ -13,6 +13,8 @@ import re
 from datetime import datetime
 from PIL import Image
 from deep_translator import GoogleTranslator
+from datetime import datetime, timedelta
+
 
 # --- 1. SETTINGS & CONNECTIONS ---
 st.set_page_config(page_title="Repair Management System PRO", layout="wide")
@@ -331,67 +333,122 @@ elif role == "tech":
             st.dataframe(display_df, height=600, use_container_width=True, hide_index=True)
         else:
             st.write("No pending jobs 🎉")
-elif role in ["admin", "super admin"]:
-    st.header(f"📊 Executive Summary: {app_mode}")
-    
-    # สร้าง Tab สำหรับแยกมุมมอง
-    tab_daily, tab_weekly, tab_monthly = st.tabs(["รายงานรายวัน", "สรุปรายสัปดาห์ (Mon-Sun)", "สรุปรายเดือน"])
 
-    # ดึงข้อมูลและแปลงวันที่ให้ใช้งานได้
+
+# --- ส่วน Admin Panel ฉบับจัดเต็ม ---
+elif role in ["admin", "super admin"]:
+    st.header(f"🏛️ Executive Admin Dashboard: {app_mode}")
+    
+    # 1. การคำนวณข้อมูลเบื้องต้น
+    unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
     df_report = df_all[df_all['category'] == app_mode].copy()
+    # แปลง tech_time เป็น DateTime Object (Column O)
     df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce')
 
-    # --- TAB: รายวัน (เดิม) ---
+    # 2. Executive Summary Metrics (รวมทุกอย่าง)
+    m1, m2, m3, m4 = st.columns(4)
+    total_all = len(df_report)
+    total_pending = len(df_report[df_report['status'] == 'Pending'])
+    total_wait = len(df_report[df_report['status'] == 'Wait Part'])
+    total_done = len(df_report[df_report['status'].isin(['Complate', 'Scrap'])])
+    
+    m1.metric("งานทั้งหมดในระบบ", f"{total_all} {unit}")
+    m2.metric("วิเคราะห์อยู่", f"{total_pending} {unit}", delta_color="inverse")
+    m3.metric("รออะไหล่", f"{total_wait} {unit}", delta_color="inverse")
+    m4.metric("ปิดงานแล้ว", f"{total_done} {unit}")
+
+    st.divider()
+
+    # 3. ส่วนรายงานแยกตาม Tab
+    tab_daily, tab_weekly, tab_monthly, tab_manage = st.tabs([
+        "📅 รายงานวันนี้", "📊 สรุปรายสัปดาห์ (Mon-Sun)", "🗓️ สรุปรายเดือน", "🛠️ จัดการข้อมูล Raw Data"
+    ])
+
+    # --- TAB: รายวัน ---
     with tab_daily:
         st.subheader("📌 Daily Performance")
-        # (ใส่โค้ด Metric และกราฟรายวันที่เคยทำไว้)
-
-    # --- TAB: รายสัปดาห์ (จันทร์ - อาทิตย์) ---
-    with tab_weekly:
-        st.subheader(f"📅 Weekly Report: {start_wk.strftime('%d %b')} - Present")
+        if st.button("📢 ส่งรายงานสรุปเข้า LINE Group ทันที", use_container_width=True, type="primary"):
+            send_daily_summary(df_all, app_mode)
         
-        # กรองข้อมูลเฉพาะสัปดาห์ปัจจุบัน
+        # แสดงรายการงานที่ทำเสร็จวันนี้
+        today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%Y-%m-%d")
+        done_today = df_report[df_report['tech_time'].astype(str).str.contains(today_str)]
+        if not done_today.empty:
+            st.write("**งานที่ทำความเคลื่อนไหววันนี้:**")
+            st.dataframe(done_today[['serial_number', 'model', 'status', 'real_case', 'action']], use_container_width=True)
+        else:
+            st.info("วันนี้ยังไม่มีการบันทึกงานเสร็จในระบบ")
+
+    # --- TAB: รายสัปดาห์ ---
+    with tab_weekly:
+        st.subheader(f"📅 Weekly Report: {start_wk.strftime('%d %b')} - { (start_wk + timedelta(days=6)).strftime('%d %b') }")
+        
         weekly_df = df_report[df_report['tech_datetime'] >= start_wk]
         
-        col1, col2, col3 = st.columns(3)
-        w_done = len(weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])])
-        w_pend = len(df_report[df_report['status'].isin(['Pending', 'Wait Part'])]) # งานค้างนับทั้งหมด
-        
-        col1.metric("ซ่อมเสร็จสัปดาห์นี้", f"{w_done} {unit}")
-        col2.metric("งานค้างสะสม", f"{w_pend} {unit}")
-        col3.metric("เป้าหมายสัปดาห์", "100%", delta=f"{w_done} units")
-
-        # กราฟยอดซ่อมเสร็จรายวันในสัปดาห์นี้
-        if not weekly_df.empty:
-            weekly_chart = weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])]
-            daily_summary = weekly_chart.groupby(weekly_chart['tech_datetime'].dt.day_name()).size()
-            # จัดเรียงวันจันทร์-อาทิตย์
-            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            daily_summary = daily_summary.reindex(days_order, fill_value=0)
-            st.line_chart(daily_summary)
-            st.caption("กราฟแสดงจำนวนงานที่ซ่อมเสร็จในแต่ละวันของสัปดาห์นี้")
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            w_done = len(weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])])
+            st.metric("Total Completed (This Week)", f"{w_done} {unit}")
+            st.write("**สถานะงานค้างปัจจุบัน:**")
+            st.write(f"- อยู่ระหว่างวิเคราะห์: {total_pending}")
+            st.write(f"- รอพาร์ท: {total_wait}")
+            
+        with c2:
+            # กราฟแท่งแสดงยอดเสร็จรายวัน (Mon-Sun)
+            weekly_chart_data = weekly_df[weekly_df['status'].isin(['Complate', 'Scrap'])]
+            if not weekly_chart_data.empty:
+                daily_counts = weekly_chart_data.groupby(weekly_chart_data['tech_datetime'].dt.day_name()).size()
+                days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                daily_counts = daily_counts.reindex(days_order, fill_value=0)
+                st.bar_chart(daily_counts)
+            else:
+                st.write("ยังไม่มีข้อมูลกราฟสำหรับสัปดาห์นี้")
 
     # --- TAB: รายเดือน ---
     with tab_monthly:
         st.subheader(f"🗓️ Monthly Overview: {start_mo.strftime('%B %Y')}")
-        
-        # กรองข้อมูลเฉพาะเดือนปัจจุบัน
         monthly_df = df_report[df_report['tech_datetime'] >= start_mo]
         
         m_col1, m_col2 = st.columns(2)
-        m_done = len(monthly_df[monthly_df['status'].isin(['Complate', 'Scrap'])])
-        
-        m_col1.info(f"ยอดซ่อมเสร็จรวมทั้งเดือน: **{m_done} {unit}**")
-        
-        # แสดง Top 5 อาการเสียประจำเดือน (Classification)
-        if 'classification' in monthly_df.columns:
-            st.write("**Top 5 Root Causes this Month**")
-            m_cls = monthly_df['classification'].value_counts().head(5)
-            st.bar_chart(m_cls)
+        with m_col1:
+            m_done = len(monthly_df[monthly_df['status'].isin(['Complate', 'Scrap'])])
+            st.info(f"ยอดซ่อมเสร็จสะสมเดือนนี้: **{m_done} {unit}**")
+            
+            # สรุปอาการเสียยอดฮิต
+            if 'classification' in monthly_df.columns:
+                st.write("**5 อันดับสาเหตุที่พบมากที่สุด:**")
+                st.write(monthly_df['classification'].value_counts().head(5))
 
-    # --- ส่วนปุ่ม Export ข้อมูลสำหรับรายงานประชุม ---
-    st.divider()
-    if st.checkbox("Show Data for Report (เตรียมข้อมูลไปลงสไลด์)"):
-        report_type = st.radio("เลือกประเภทข้อมูล", ["สัปดาห์นี้", "เดือนนี้"], horizontal=True)
-        data_to_show = weekly_df if report_type == "สัปดาห์นี้" else monthly_df
-        st.dataframe(data_to_show, use_container_width=True)
+        with m_col2:
+            if not monthly_df.empty:
+                st.write("**สัดส่วนสถานะงานเดือนนี้ (Pie Chart)**")
+                status_dist = monthly_df['status'].value_counts()
+                st.bar_chart(status_dist)
+
+    # --- TAB: จัดการข้อมูล (Raw Data) ---
+    with tab_manage:
+        st.subheader("🔍 ค้นหาและแก้ไขข้อมูลเชิงลึก")
+        search_filter = st.text_input("กรองข้อมูลด้วย SN / WO / Model").upper()
+        
+        final_df = df_report.copy()
+        if search_filter:
+            final_df = final_df[
+                (final_df['serial_number'].str.contains(search_filter)) | 
+                (final_df['work_order'].str.contains(search_filter)) |
+                (final_df['model'].str.contains(search_filter))
+            ]
+            
+        # ปุ่ม Download สำหรับไปทำ Excel ต่อ
+        csv = final_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Download Data as CSV (for Excel)",
+            data=csv,
+            file_name=f'repair_export_{app_mode}_{datetime.now().strftime("%Y%m%d")}.csv',
+            mime='text/csv'
+        )
+
+        # แก้ไขข้อมูลหน้าตาราง
+        edited_df = st.data_editor(final_df, use_container_width=True, num_rows="dynamic", hide_index=True)
+        if st.button("💾 บันทึกการแก้ไขข้อมูลทั้งหมด (ระวัง!)"):
+            # ส่วนนี้หากต้องการ Implement การ Save กลับทั้งตารางต้องเขียนลูป Update Worksheet
+            st.warning("ระบบ Data Editor แนะนำให้ใช้สำหรับการเตรียมข้อมูลเพื่อ Copy/Paste หรือ Export หากต้องการแก้ไขรายตัวแนะนำใช้ Sidebar")
