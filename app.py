@@ -9,7 +9,7 @@ import requests
 import time
 import io
 import pytz 
-import re # เพิ่มสำหรับกรองตัวอักษร
+import re 
 from datetime import datetime
 from PIL import Image
 from deep_translator import GoogleTranslator
@@ -43,11 +43,20 @@ if not success:
 
 # --- 2. HELPERS ---
 def validate_sn(text):
-    """กรองให้เหลือเฉพาะภาษาอังกฤษและตัวเลขเท่านั้น"""
+    """กรองเฉพาะภาษาอังกฤษและตัวเลข (A-Z, 0-9) เท่านั้น"""
     if not text: return ""
-    # ถ้ามีภาษาไทยปนมา ให้แจ้งเตือนผ่าน Session State (ถ้าจำเป็น) หรือกรองออกเลย
-    cleaned = re.sub(r'[^a-zA-Z0-9]', '', text).upper()
-    return cleaned
+    return re.sub(r'[^a-zA-Z0-9]', '', text).upper()
+
+def display_user_images(url_string):
+    """แสดงรูปภาพอาการเสียในหน้าช่าง"""
+    if not url_string:
+        st.info("ไม่มีรูปภาพอาการเสียแนบมา")
+        return
+    urls = str(url_string).split(",")
+    cols = st.columns(min(len(urls), 4))
+    for idx, url in enumerate(urls):
+        with cols[idx % 4]:
+            st.image(url, caption=f"อาการเสีย #{idx+1}", use_container_width=True)
 
 def send_line(msg):
     token = st.secrets.get("line_channel_access_token")
@@ -58,17 +67,6 @@ def send_line(msg):
     payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
     try: requests.post(url, headers=headers, json=payload)
     except: pass
-
-# --- เพิ่มฟังก์ชันช่วยแสดงผลรูปภาพในส่วน Helpers ---
-def display_user_images(url_string):
-    if not url_string:
-        st.write("ไม่มีรูปภาพอาการเสียแนบมา")
-        return
-    urls = url_string.split(",")
-    cols = st.columns(len(urls) if len(urls) < 4 else 4) # แสดงสูงสุด 4 รูปต่อแถว
-    for idx, url in enumerate(urls):
-        with cols[idx % 4]:
-            st.image(url, caption=f"อาการเสีย #{idx+1}", use_container_width=True)
 
 def send_daily_summary(df, app_mode):
     today_str = datetime.now(pytz.timezone('Asia/Bangkok')).strftime("%d/%m/%Y")
@@ -155,12 +153,12 @@ with st.sidebar:
     st.divider()
     st.subheader("📝 Quick Edit Status")
     sn_edit_input = st.text_input("Scan SN to Edit").strip()
-    sn_edit = validate_sn(sn_edit_input) # กรองภาษาไทยออก
+    sn_edit = validate_sn(sn_edit_input)
     
     if sn_edit:
         edit_row = df_all[df_all['serial_number'] == sn_edit]
         if not edit_row.empty:
-            with st.expander("Edit Details", expanded=True):
+            with st.expander("Edit Status Only", expanded=True):
                 current_stat = edit_row.iloc[-1]['status']
                 stat_options = ["Pending", "Wait Part", "Complate", "Scrap"]
                 idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
@@ -183,31 +181,26 @@ if role == "user":
         with st.form("req_form"):
             c1, c2 = st.columns(2)
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
-            p_val = ""
-            if sel_m:
-                matched_p = df_m[df_m['model']==sel_m]['product_name'].values
-                p_val = matched_p[0] if len(matched_p) > 0 else ""
+            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
             
-            # รับค่า SN และกรองทันที
             sn_input = c1.text_input("Serial Number (Eng/Num Only)").strip()
             sn = validate_sn(sn_input)
             if any("\u0E00" <= char <= "\u0E7F" for char in sn_input):
-                st.warning("⚠️ ตรวจพบภาษาไทย! ระบบกรองให้เหลือเฉพาะ Eng/ตัวเลข")
+                st.warning("⚠️ ตรวจพบภาษาไทย! ระบบจะกรองให้เหลือเฉพาะ Eng/ตัวเลข")
             
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
-            fail_th = c2.text_area("อาการเสีย (Problem) - พิมพ์ไทยได้")
-            u_imgs = st.file_uploader("แนบรูปภาพ", accept_multiple_files=True)
+            fail_th = c2.text_area("อาการเสีย (Problem)")
+            u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
             if st.form_submit_button("ยืนยันแจ้งซ่อม"):
                 if sel_m and sn and wo and stat:
-                    with st.spinner("กำลังแปลและอัปโหลด..."):
+                    with st.spinner("Processing..."):
                         fail_en = translate_to_en(fail_th)
                         urls = upload_images(u_imgs, "REQ", sn)
                     new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                     ws_main.append_row(new_row)
-                    send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nBy: {nick}")
-                    st.success(f"บันทึก SN: {sn} เรียบร้อย!"); time.sleep(1); st.rerun()
+                    st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
                 else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
@@ -218,51 +211,59 @@ if role == "user":
             for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
                 with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
                     st.write(f"**Station:** {row['station']} | **Problem:** {row['failure']}")
-                    if st.button("🔔 ตามงานด่วน", key=f"alert_{idx}"):
-                        send_line(f"⚠️ ตามงานด่วน!\nSN: {row['serial_number']}\nผู้ตาม: {nick}"); st.success("ส่งแจ้งเตือนแล้ว")
 
 # --- 6. TECHNICIAN INTERFACE ---
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
         st.header("🔧 Technician Workspace")
-        sn_scan = validate_sn(st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข (English Only)").strip())
+        sn_scan_input = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข (English Only)").strip()
+        sn_scan = validate_sn(sn_scan_input)
+        
         if sn_scan:
             job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode) & (df_all['status'].isin(["Pending", "Wait Part", "Complate"]))]
             if not job.empty:
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
-                # --- โชว์รูปจาก User ---
-                with st.expander("📸 รูปภาพอาการเสียจาก User", expanded=True):
-                    display_images_from_url(j.get('user_image', ''), "อาการเสีย")
+                
+                # --- แสดงรูปภาพที่ User ส่งมา ---
+                with st.expander("📸 ดูรูปภาพอาการเสียจาก User", expanded=True):
+                    display_user_images(j.get('user_image', ''))
                 
                 if j['status'] == "Complate": st.warning("⚠️ งานนี้ปิดแล้ว คุณสามารถแก้ไขข้อมูลหรือแนบรูปเพิ่มได้")
                 st.info(f"📍 Original Problem: {j['failure']}")
                 
                 with st.form("tech_update"):
-                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(j['status']) if j['status'] in ["Complate", "Scrap", "Wait Part"] else 0, horizontal=True)
+                    st.subheader("Update Analysis & Actions")
+                    current_res = j['status'] if j['status'] in ["Complate", "Scrap", "Wait Part"] else "Complate"
+                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], index=["Complate", "Scrap", "Wait Part"].index(current_res), horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
-                    cls = st.selectbox("Classification", cls_list, index=cls_list.index(j.get('classification', "")) if j.get('classification', "") in cls_list else 0)
+                    current_cls = j.get('classification', "")
+                    cls_idx = cls_list.index(current_cls) if current_cls in cls_list else 0
+                    cls = st.selectbox("Classification", cls_list, index=cls_idx)
                     case_th = st.text_input("Root Cause", value=j.get('real_case', ""))
                     act_th = st.text_area("Action Taken", value=j.get('action', ""))
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพขณะซ่อม/ปิดงาน (Column Q)", accept_multiple_files=True)
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพการซ่อม/ปิดงาน (Column Q)", accept_multiple_files=True)
+                    
                     if st.form_submit_button("บันทึกข้อมูล"):
                         if case_th and act_th:
-                            with st.spinner("Updating..."):
+                            with st.spinner("Updating Data..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
-                            ws_main.update_acell(f'B{ridx}', res)
-                            ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
-                            if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
+                                
+                                ws_main.update_acell(f'B{ridx}', res)
+                                ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
+                                if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                        else: st.warning("กรุณากรอกข้อมูลให้ครบ")
-            else: st.error("ไม่พบข้อมูล SN นี้")
+                        else: st.warning("กรุณากรอกสาเหตุและวิธีแก้ไข")
+            else: st.error("ไม่พบข้อมูล SN นี้ในระบบ (ตรวจสอบภาษาคีย์บอร์ด)")
     with col_side:
         st.subheader("📋 Pending Jobs")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         st.dataframe(pending_list[['serial_number', 'model', 'status']], height=500, use_container_width=True) if not pending_list.empty else st.write("No pending jobs 🎉")
+
 # --- 7. ADMIN INTERFACE ---
 elif role in ["admin", "super admin"]:
     st.header(f"👮 Admin Panel ({app_mode})")
