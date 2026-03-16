@@ -215,7 +215,7 @@ if role == "user":
                         urls = upload_images(u_imgs, "REQ", sn)
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
-                        send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
+                        send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nStation:{df_st}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
                         st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
                 else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     
