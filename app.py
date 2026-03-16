@@ -537,3 +537,50 @@ elif role in ["admin", "super admin"]:
             st.cache_resource.clear()
             st.success("ล้างแคชเรียบร้อยแล้ว! ข้อมูลจะถูกดึงใหม่ทั้งหมด")
             st.rerun()
+
+# --- ภายใต้ Tab Management หรือสร้าง Tab ใหม่สำหรับ Super Admin ---
+    if role == "super admin":
+        with tab_manage:
+            st.divider()
+            st.subheader("🔑 Super Admin Control Panel")
+            
+            s_col1, s_col2 = st.columns(2)
+            
+            with s_col1:
+                st.write("👥 **จัดการผู้ใช้งาน (User Management)**")
+                df_users = get_df("users")
+                if not df_users.empty:
+                    st.dataframe(df_users, use_container_width=True, hide_index=True)
+                    
+                    with st.expander("➕ เพิ่มผู้ใช้งานใหม่"):
+                        new_u = st.text_input("Username (ใหม่)")
+                        new_p = st.text_input("Password (ใหม่)", type="password")
+                        new_n = st.text_input("Nickname")
+                        new_r = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
+                        if st.button("บันทึกผู้ใช้ใหม่"):
+                            ws_u = ss.worksheet("users")
+                            ws_u.append_row([new_u, new_p, new_r, new_n])
+                            st.success(f"เพิ่ม {new_u} เรียบร้อย!")
+                            st.rerun()
+
+            with s_col2:
+                st.write("⚠️ **ระบบความปลอดภัยและการล้างข้อมูล**")
+                # ปุ่ม Danger Zone
+                with st.expander("🚨 Danger Zone", expanded=False):
+                    st.warning("การกระทำนี้ไม่สามารถย้อนกลับได้")
+                    if st.button("🗑️ ล้าง Cache ระบบทั้งหมด"):
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.success("Cleared all cache!")
+                    
+                    delete_sn = st.text_input("ระบุ SN ที่ต้องการลบจากระบบ")
+                    if st.button("❌ ลบข้อมูล SN นี้"):
+                        if delete_sn:
+                            # ค้นหาแถวที่มี SN นี้และลบออก (ต้องใช้ gspread find)
+                            try:
+                                cell = ws_main.find(delete_sn)
+                                ws_main.delete_rows(cell.row)
+                                st.error(f"ลบข้อมูล SN {delete_sn} เรียบร้อยแล้ว")
+                                time.sleep(1); st.rerun()
+                            except:
+                                st.warning("ไม่พบ SN นี้ในระบบ")
