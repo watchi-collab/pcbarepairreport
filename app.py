@@ -230,11 +230,11 @@ with st.sidebar:
     if st.button("🚪 ออกจากระบบ", use_container_width=True):
         st.session_state.is_logged_in = False; st.rerun()
 
-# --- 6. INTERFACES BY ROLE (USER PORTAL - UPDATED) ---
+# --- 6. INTERFACES BY ROLE (USER PORTAL - FULL OPTIMIZED) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     
-    # ส่วนจัดการ State สำหรับการรีเซ็ตค่า
+    # ส่วนจัดการ State สำหรับการรีเซ็ตค่า File Uploader
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
 
@@ -244,7 +244,7 @@ if role == "user":
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
         
-        # ใช้ clear_on_submit=True เพื่อล้างค่า Text Input ทั้งหมดในฟอร์มทันทีที่กดปุ่ม
+        # clear_on_submit=True จะล้างค่า text_input และ text_area ทั้งหมดในฟอร์มเมื่อกดส่ง
         with st.form("req_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             
@@ -252,8 +252,7 @@ if role == "user":
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
             
-            # --- จุดสำคัญ: ช่อง SN ---
-            # การใส่ label_visibility="visible" และจัดไว้เป็นช่องแรกๆ จะช่วยให้ Cursor โฟกัสได้ง่ายเมื่อ rerun
+            # ช่อง SN: เมื่อ rerun ระบบจะกลับมาโฟกัสที่ช่อง input แรกเสมอ
             sn_input = c1.text_input("Serial Number", key="sn_field").strip()
             sn = validate_sn(sn_input)
             
@@ -261,54 +260,64 @@ if role == "user":
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail_th = c2.text_area("อาการเสีย (Problem Description)")
             
-            # ใช้ dynamic key เพื่อเคลียร์ไฟล์ใน uploader
+            # ใช้ dynamic key เพื่อบังคับเคลียร์รูปภาพใน uploader
             u_imgs = st.file_uploader("📸 แนบรูปภาพ (จะส่งเข้า LINE)", 
                                      accept_multiple_files=True, 
                                      key=f"user_upload_{st.session_state.uploader_key}")
             
-            if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
+            submit_btn = st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True)
+            
+            if submit_btn:
                 if sel_m and sn and wo and stat:
-                    with st.spinner("กำลังบันทึกข้อมูลและส่งรูป..."):
-                        # 1. แปลภาษา
+                    with st.spinner("กำลังแปลภาษา บันทึกข้อมูล และส่งรูป..."):
+                        # 1. แปลภาษาไทยเป็นอังกฤษก่อนบันทึก
                         fail_en = translate_to_en(fail_th)
                         
-                        # 2. อัปโหลดรูป
+                        # 2. อัปโหลดรูปภาพไปยัง Cloudinary
                         urls = upload_images(u_imgs, "REQ", sn)
                         
-                        # 3. บันทึก Sheets
+                        # 3. บันทึกข้อมูลลง Google Sheets
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
                         
-                        # 4. ส่ง LINE
-                        line_msg = f"🚨 New Job! ({app_mode})\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}"
+                        # 4. ส่งแจ้งเตือนเข้ากลุ่ม LINE (พร้อมรูปภาพแรก)
+                        line_msg = f"🚨 New Repair Request! ({app_mode})\n"
+                        line_msg += f"SN: {sn}\n"
+                        line_msg += f"Model: {sel_m}\n"
+                        line_msg += f"Problem: {fail_en}\n"
+                        line_msg += f"By: {nick}"
+                        
+                        # ฟังก์ชัน send_line จะทำการแยกรูปแรกจาก urls ให้อัตโนมัติ
                         send_line(line_msg, image_url=urls)
                         
-                        # --- 5. การจัดการหลังบันทึกเสร็จ ---
-                        # เปลี่ยน Key ของ Uploader เพื่อเคลียร์รูปภาพเป็นค่าว่าง
+                        # 5. จัดการ State เพื่อล้างค่ารูปภาพและรีเซ็ตหน้าจอ
                         st.session_state.uploader_key += 1 
                         
-                        st.success("บันทึกเรียบร้อย! ระบบพร้อมสำหรับสแกน SN ถัดไป")
+                        st.success(f"บันทึกสำเร็จ! (Translated: {fail_en})")
                         time.sleep(1)
                         
-                        # การ rerun จะทำให้ UI กลับไปเริ่มต้นใหม่ 
-                        # และโดยปกติ Streamlit จะนำ Cursor ไปไว้ที่ช่อง Input แรกที่ว่างอยู่ (SN)
+                        # การ rerun จะทำให้ cursor กลับไปโฟกัสที่ช่องแรก (SN) โดยอัตโนมัติ
                         st.rerun()
                 else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน"))
+                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
 
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
         my_jobs = df_all[df_all['category'] == app_mode]
+        
         if search_q:
             my_jobs = my_jobs[(my_jobs['serial_number'].str.contains(search_q)) | (my_jobs['model'].str.contains(search_q))]
         
+        # แสดงรายการล่าสุดขึ้นก่อน (Reverse Order)
         for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
             with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
                 st.write(f"**Station:** {row['station']}")
-                st.write(f"**Problem:** {row['failure']}")
-                # แสดงรูปภาพเดิมที่ User เคยส่งไว้
+                st.write(f"**Problem (EN):** {row['failure']}")
+                st.write(f"**Time:** {row['user_time']}")
+                
+                # แสดงรูปภาพที่เคยส่งไว้ (ถ้ามี)
                 if row.get('user_image'):
-                    display_images_with_link(row['user_image'], "รูปภาพแนบ")
+                    display_images_with_link(row['user_image'], "รูปภาพที่แจ้งซ่อม")
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
