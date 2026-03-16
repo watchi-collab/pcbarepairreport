@@ -338,8 +338,7 @@ elif role == "tech":
                     
                     # 2. ดึงข้อความจาก Action (Column K) มาเป็นค่าเริ่มต้น เพื่อให้พิมพ์ต่อได้เลย
                     # ในรูปของคุณ Action มีค่า "[Waiting Part: K-A-000083 ]" อยู่แล้ว
-                    existing_action = str(j.get('action', "")).strip()
-                    act_th = st.text_area("Action Taken", value=existing_action)
+
                     
                     # ระบบสถานะ
                     stat_list = ["Complete", "Scrap", "Wait Part"]
@@ -350,6 +349,8 @@ elif role == "tech":
                     cls = st.selectbox("Classification", cls_list)
                     case_th = st.text_input("Root Cause")
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
+                    existing_action = str(j.get('action', "")).strip()
+                    act_th = st.text_area("Action Taken", value=existing_action)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
                         # เงื่อนไขการบันทึก
