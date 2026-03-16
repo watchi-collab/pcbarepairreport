@@ -23,20 +23,24 @@ def get_now():
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
 @st.cache_resource
-
 def init_all():
     try:
         creds_dict = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        ss = client.open_by_key(SHEET_ID)
-        cloudinary.config(
-            cloud_name = "dn8n04koh", api_key = "352259521151764",
-            api_secret = "R9S6W2_-CGIP4d-_uKA-nKW1gOg", secure = True
-        )
-        return ss, True
-    except Exception as e: return e, False
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        ss = client.open_by_key(SHEET_ID)
+        
+        # ดึงค่าจาก secrets เพื่อความปลอดภัย
+        cloudinary.config(
+            cloud_name = st.secrets["cloudinary"]["cloud_name"],
+            api_key = st.secrets["cloudinary"]["api_key"],
+            api_secret = st.secrets["cloudinary"]["api_secret"],
+            secure = True
+        )
+        return ss, True
+    except Exception as e:
+        return e, False
 
 ss, success = init_all()
 if not success:
