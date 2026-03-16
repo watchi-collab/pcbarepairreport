@@ -230,13 +230,15 @@ with st.sidebar:
     if st.button("🚪 ออกจากระบบ", use_container_width=True):
         st.session_state.is_logged_in = False; st.rerun()
 
-# --- 6. INTERFACES BY ROLE ---
+# --- 6. INTERFACES BY ROLE (USER PORTAL - UPDATED) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
+    
     with t1:
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
+        
         with st.form("req_form"):
             c1, c2 = st.columns(2)
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
@@ -244,29 +246,54 @@ if role == "user":
             c1.text_input("Product", value=p_val, disabled=True)
             sn_input = c1.text_input("Serial Number").strip()
             sn = validate_sn(sn_input)
+            
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
-            fail_th = c2.text_area("อาการเสีย (Problem)")
-            u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
-            if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
+            fail_th = c2.text_area("อาการเสีย (Problem Description)")
+            u_imgs = st.file_uploader("📸 แนบรูปภาพอาการเสีย (ส่งเข้า LINE)", accept_multiple_files=True)
+            
+            if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
                 if sel_m and sn and wo and stat:
-                    with st.spinner("กำลังส่งข้อมูล..."):
+                    with st.spinner("กำลังแปลภาษาและส่งรูปภาพเข้า LINE..."):
+                        # 1. แปลอาการเสียเป็นภาษาอังกฤษก่อนบันทึก
                         fail_en = translate_to_en(fail_th)
+                        
+                        # 2. อัปโหลดรูปภาพไปยัง Cloudinary
                         urls = upload_images(u_imgs, "REQ", sn)
+                        
+                        # 3. บันทึกข้อมูลลง Google Sheets
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
-                        send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
-                        st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+                        
+                        # 4. ส่งแจ้งเตือนเข้า LINE พร้อมแนบรูปภาพ
+                        # ฟังก์ชัน send_line จะรับ urls และแยกรูปแรกไปโชว์ในแชทอัตโนมัติ
+                        line_msg = f"🚨 New Repair Job! ({app_mode})\n"
+                        line_msg += f"SN: {sn}\n"
+                        line_msg += f"Model: {sel_m}\n"
+                        line_msg += f"Problem: {fail_en}\n"
+                        line_msg += f"Reporter: {nick}"
+                        
+                        send_line(line_msg, image_url=urls)
+                        
+                        st.success(f"บันทึกสำเร็จ! (Translated: {fail_en})")
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+
     with t2:
-        search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
+        search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
         my_jobs = df_all[df_all['category'] == app_mode]
         if search_q:
             my_jobs = my_jobs[(my_jobs['serial_number'].str.contains(search_q)) | (my_jobs['model'].str.contains(search_q))]
+        
         for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
             with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
-                st.write(f"**Station:** {row['station']} | **Problem:** {row['failure']}")
-
+                st.write(f"**Station:** {row['station']}")
+                st.write(f"**Problem:** {row['failure']}")
+                # แสดงรูปภาพเดิมที่ User เคยส่งไว้
+                if row.get('user_image'):
+                    display_images_with_link(row['user_image'], "รูปภาพแนบ")
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
