@@ -233,53 +233,68 @@ with st.sidebar:
 # --- 6. INTERFACES BY ROLE (USER PORTAL - UPDATED) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
+    
+    # ส่วนจัดการ State สำหรับการรีเซ็ตค่า
+    if "uploader_key" not in st.session_state:
+        st.session_state.uploader_key = 0
+
     t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
     
     with t1:
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
         
-        with st.form("req_form"):
+        # ใช้ clear_on_submit=True เพื่อล้างค่า Text Input ทั้งหมดในฟอร์มทันทีที่กดปุ่ม
+        with st.form("req_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
+            
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
-            sn_input = c1.text_input("Serial Number").strip()
+            
+            # --- จุดสำคัญ: ช่อง SN ---
+            # การใส่ label_visibility="visible" และจัดไว้เป็นช่องแรกๆ จะช่วยให้ Cursor โฟกัสได้ง่ายเมื่อ rerun
+            sn_input = c1.text_input("Serial Number", key="sn_field").strip()
             sn = validate_sn(sn_input)
             
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail_th = c2.text_area("อาการเสีย (Problem Description)")
-            u_imgs = st.file_uploader("📸 แนบรูปภาพอาการเสีย (ส่งเข้า LINE)", accept_multiple_files=True)
+            
+            # ใช้ dynamic key เพื่อเคลียร์ไฟล์ใน uploader
+            u_imgs = st.file_uploader("📸 แนบรูปภาพ (จะส่งเข้า LINE)", 
+                                     accept_multiple_files=True, 
+                                     key=f"user_upload_{st.session_state.uploader_key}")
             
             if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
                 if sel_m and sn and wo and stat:
-                    with st.spinner("กำลังแปลภาษาและส่งรูปภาพเข้า LINE..."):
-                        # 1. แปลอาการเสียเป็นภาษาอังกฤษก่อนบันทึก
+                    with st.spinner("กำลังบันทึกข้อมูลและส่งรูป..."):
+                        # 1. แปลภาษา
                         fail_en = translate_to_en(fail_th)
                         
-                        # 2. อัปโหลดรูปภาพไปยัง Cloudinary
+                        # 2. อัปโหลดรูป
                         urls = upload_images(u_imgs, "REQ", sn)
                         
-                        # 3. บันทึกข้อมูลลง Google Sheets
+                        # 3. บันทึก Sheets
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
                         
-                        # 4. ส่งแจ้งเตือนเข้า LINE พร้อมแนบรูปภาพ
-                        # ฟังก์ชัน send_line จะรับ urls และแยกรูปแรกไปโชว์ในแชทอัตโนมัติ
-                        line_msg = f"🚨 New Repair Job! ({app_mode})\n"
-                        line_msg += f"SN: {sn}\n"
-                        line_msg += f"Model: {sel_m}\n"
-                        line_msg += f"Problem: {fail_en}\n"
-                        line_msg += f"Reporter: {nick}"
-                        
+                        # 4. ส่ง LINE
+                        line_msg = f"🚨 New Job! ({app_mode})\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}"
                         send_line(line_msg, image_url=urls)
                         
-                        st.success(f"บันทึกสำเร็จ! (Translated: {fail_en})")
+                        # --- 5. การจัดการหลังบันทึกเสร็จ ---
+                        # เปลี่ยน Key ของ Uploader เพื่อเคลียร์รูปภาพเป็นค่าว่าง
+                        st.session_state.uploader_key += 1 
+                        
+                        st.success("บันทึกเรียบร้อย! ระบบพร้อมสำหรับสแกน SN ถัดไป")
                         time.sleep(1)
+                        
+                        # การ rerun จะทำให้ UI กลับไปเริ่มต้นใหม่ 
+                        # และโดยปกติ Streamlit จะนำ Cursor ไปไว้ที่ช่อง Input แรกที่ว่างอยู่ (SN)
                         st.rerun()
                 else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน"))
 
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
