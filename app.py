@@ -348,9 +348,11 @@ elif role == "tech":
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
                     case_th = st.text_input("Root Cause")
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
+                    
                     existing_action = str(j.get('action', "")).strip()
                     act_th = st.text_area("Action Taken", value=existing_action)
+                    
+                    tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
                         # เงื่อนไขการบันทึก
