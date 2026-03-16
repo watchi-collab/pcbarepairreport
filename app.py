@@ -311,13 +311,12 @@ if role == "user":
                 # แสดงรูปภาพที่เคยส่งไว้ (ถ้ามี)
                 if row.get('user_image'):
                     display_images_with_link(row['user_image'], "รูปภาพที่แจ้งซ่อม")
-# --- ROLE: TECH (ปรับปรุงตามหน้าจอจริงที่ส่งมา) ---
+# --- ROLE: TECH (ปรับปรุงการดึงข้อมูลจาก Column Action และล้างค่า Column M) ---
 elif role == "tech":
     st.header("🔧 Technician Workspace")
     sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข", key="tech_sn_input").strip()
     
     if sn_scan:
-        # ตรวจสอบ SN ต้องเป็นภาษาอังกฤษและตัวเลขเท่านั้น
         if not re.match(r'^[a-zA-Z0-9]+$', sn_scan):
             st.error("❌ รูปแบบ SN ไม่ถูกต้อง (ภาษาอังกฤษและตัวเลขเท่านั้น)")
         else:
@@ -326,73 +325,70 @@ elif role == "tech":
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
                 
-                # --- แสดงข้อมูลเบื้องต้นเหมือนในรูปภาพ ---
+                # แสดง Info เบื้องต้น
                 st.info(f"📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
                 
-                # --- ส่วนซ่อนรูปภาพ (ย่อไว้เป็น Default ตามที่คุณต้องการ) ---
                 with st.expander("🖼️ ดูรูปภาพจาก User (คลิกเพื่อเปิดดู)"):
                     display_images_with_link(j.get('user_image', ''), "รูปภาพอาการเสีย")
 
                 with st.form("tech_update"):
-                    # ดึงชื่อพาร์ทเดิมมาตั้งต้น
-                    old_part = str(j.get('wait_part_name', "")).strip()
+                    # 1. ดึงค่า wait_part_name ปัจจุบันมาโชว์ (ถ้ายังมีค้างอยู่ใน Column M)
+                    current_wait_part = str(j.get('wait_part_name', "")).strip()
+                    p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
                     
-                    p_name_input = st.text_input("Waiting Part Name", value=old_part)
+                    # 2. ดึงข้อความจาก Action (Column K) มาเป็นค่าเริ่มต้น เพื่อให้พิมพ์ต่อได้เลย
+                    # ในรูปของคุณ Action มีค่า "[Waiting Part: K-A-000083 ]" อยู่แล้ว
+                    existing_action = str(j.get('action', "")).strip()
+                    act_th = st.text_area("Action Taken", value=existing_action)
                     
-                    # ระบบจัดการสถานะอัตโนมัติ
+                    # ระบบสถานะ
                     stat_list = ["Complete", "Scrap", "Wait Part"]
-                    if p_name_input:
-                        default_status = "Wait Part"
-                    else:
-                        current_stat = j.get('status')
-                        default_status = current_stat if current_stat in stat_list else "Complete"
-                    
+                    default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
                     res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
                     
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
-                    
                     case_th = st.text_input("Root Cause")
-                    
-                    # --- ดึงชื่อพาร์ทมาพิมพ์ต่อใน Action Taken ---
-                    # ถ้ามีพาร์ทเดิมในระบบ จะใส่ค่าตั้งต้นไว้ให้ช่างพิมพ์ต่อได้เลย
-                    action_initial = f"[Part: {old_part}] " if old_part else ""
-                    act_th = st.text_area("Action Taken", value=action_initial)
-                    
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
-                        # บันทึกได้ถ้า: (เป็น Wait Part และมีชื่อพาร์ท) หรือ (เป็น Complete/Scrap และมีข้อมูลครบ)
+                        # เงื่อนไขการบันทึก
                         can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
                         
                         if can_save:
-                            with st.spinner("กำลังประมวลผลและส่ง LINE..."):
+                            with st.spinner("กำลังบันทึกและล้างสถานะพาร์ท..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 
+                                # หากมีการกรอกชื่อพาร์ทใหม่ และยังไม่มีใน Action ให้เพิ่มเข้าไป
+                                if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
+                                    act_en = f"[Waiting Part: {p_name_input}] " + act_en
+
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                                 
-                                # บันทึกข้อมูลและล้างชื่อพาร์ทใน Column M (ย้ายมาไว้ใน Action แทน)
+                                # --- หัวใจสำคัญ: บันทึกข้อมูลและลบ Column M ---
+                                # อัปเดต Column J: Root Cause, K: Action, L: Classification, M: wait_part_name (ส่ง "" ไปเพื่อลบ)
                                 ws_main.update_acell(f'B{ridx}', res)
-                                # ล้าง Column M (index ที่ 3 ในลิสต์) ให้เป็นค่าว่าง
-                                ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, "", nick, get_now()]])
+                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]]) 
+                                
+                                # อัปเดต Tech Name และ Time (Column N, O)
+                                ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
                                 
                                 if t_urls: 
                                     ws_main.update_acell(f'Q{ridx}', t_urls)
                                 
-                                # แจ้งเตือน LINE (ส่งสถานะล่าสุด)
-                                status_icon = "✅" if res == "Complete" else "⚠️" if res == "Wait Part" else "❌"
-                                line_msg = f"{status_icon} Tech Update: {res}\nSN: {sn_scan}\nAction: {act_en}\nBy: {nick}"
+                                # แจ้งเตือน LINE
+                                line_msg = f"🔧 Update: {res}\nSN: {sn_scan}\nAction: {act_en}\nBy: {nick}"
                                 send_line(line_msg, image_url=t_urls if t_urls else j.get('user_image', ''))
                                 
-                                st.success("อัปเดตข้อมูลและย้ายรายละเอียดพาร์ทเรียบร้อย!")
+                                st.success("บันทึกสำเร็จ และล้างรายชื่อพาร์ทออกจากระบบรอแล้ว")
                                 time.sleep(1)
                                 st.rerun()
                         else:
-                            st.error("กรุณากรอกข้อมูลให้ครบถ้วนตามเงื่อนไข (ต้องมีชื่อพาร์ท หรือ สาเหตุการเสีย)")
+                            st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
             else:
-                st.warning(f"ไม่พบข้อมูล SN: {sn_scan} ในระบบ")
-
+                st.warning(f"ไม่พบข้อมูล SN: {sn_scan}")
+                
 elif role in ["admin", "super admin"]:
     st.header(f"🏛️ Executive Dashboard: {app_mode}")
     df_report = df_all[df_all['category'] == app_mode].copy()
