@@ -254,49 +254,45 @@ with st.sidebar:
 
 # --- 6. INTERFACES BY ROLE ---
 
+# --- ROLE: USER ---
 if role == "user":
-    st.header(f"🚀 Repair Portal ({app_mode})")
-    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
-    
-    with t1:
-        df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
-        df_st = get_df("station_dropdowns")
-        with st.form("req_form"):
-            c1, c2 = st.columns(2)
-            sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
-            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
-            c1.text_input("Product", value=p_val, disabled=True)
-            sn_input = c1.text_input("Serial Number").strip()
-            sn = validate_sn(sn_input)
-            wo = c2.text_input("Work Order").strip().upper()
-            stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
-            fail_th = c2.text_area("อาการเสีย (Problem)")
-            u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
-            
-            if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
-                # --- INPUT VALIDATION ---
-                if not (sel_m and sn and wo and stat and fail_th):
-                    st.warning("❌ กรุณากรอกข้อมูลให้ครบถ้วนทุกช่อง")
-                elif len(sn) < 5:
-                    st.error("❌ Serial Number ไม่ถูกต้อง (ต้องมีอย่างน้อย 5 ตัวอักษร)")
-                else:
-                    with st.spinner("กำลังส่งข้อมูล..."):
-                        fail_en = translate_to_en(fail_th)
-                        urls = upload_images(u_imgs, "REQ", sn)
-                        new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
-                        ws_main.append_row(new_row)
-                        write_log("CREATE_REPAIR", f"SN: {sn}, WO: {wo}")
-                        send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
-                        st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-
-    with t2:
-        search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
-        my_jobs = df_all[df_all['category'] == app_mode]
-        if search_q:
-            my_jobs = my_jobs[(my_jobs['serial_number'].str.contains(search_q)) | (my_jobs['model'].str.contains(search_q))]
-        for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
-            with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
-                st.write(f"**Station:** {row['station']} | **Problem:** {row['failure']}")
+    st.header(f"🚀 Repair Portal ({app_mode})")
+    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
+    
+    with t1:
+        df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
+        df_st = get_df("station_dropdowns")
+        with st.form("req_form"):
+            c1, c2 = st.columns(2)
+            sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
+            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
+            c1.text_input("Product", value=p_val, disabled=True)
+            sn_input = c1.text_input("Serial Number").strip()
+            sn = validate_sn(sn_input)
+            wo = c2.text_input("Work Order").strip().upper()
+            stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
+            fail_th = c2.text_area("อาการเสีย (Problem)")
+            u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
+            
+            if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
+                if sel_m and sn and wo and stat:
+                    with st.spinner("กำลังส่งข้อมูล..."):
+                        fail_en = translate_to_en(fail_th)
+                        urls = upload_images(u_imgs, "REQ", sn)
+                        new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
+                        ws_main.append_row(new_row)
+                        send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
+                        st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
+    
+    with t2:
+        search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
+        my_jobs = df_all[df_all['category'] == app_mode]
+        if search_q:
+            my_jobs = my_jobs[(my_jobs['serial_number'].str.contains(search_q)) | (my_jobs['model'].str.contains(search_q))]
+        for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
+            with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
+                st.write(f"**Station:** {row['station']} | **Problem:** {row['failure']}")
 
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
