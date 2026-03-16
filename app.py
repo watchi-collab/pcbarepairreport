@@ -142,6 +142,7 @@ def send_daily_summary(df, app_mode):
     msg += f"ส่วนงาน: {app_mode}\n"
     msg += "--------------------------------\n"
 
+    # กรองข้อมูลตามสถานะ
     pending_df = df_mode[df_mode['status'] == 'Pending']
     wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
     done_today_df = df_mode[
@@ -149,6 +150,7 @@ def send_daily_summary(df, app_mode):
         (df_mode['tech_time'].astype(str).str.contains(today_date))
     ]
     
+    # ดึง WO ทั้งหมดที่มีความเคลื่อนไหว
     wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
 
     if len(wo_list) == 0:
@@ -157,23 +159,63 @@ def send_daily_summary(df, app_mode):
         for wo in sorted(wo_list):
             if not wo: continue
             wo_data = df_mode[df_mode['work_order'] == wo]
+            
             p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
             w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
-            d_cnt = len(wo_data[(wo_data['status'].isin(['Complete', 'Scrap'])) & (wo_data['tech_time'].astype(str).str.contains(today_date))])
+            d_cnt = len(wo_data[(wo_data['status'].isin(['Complete', 'Scrap'])) & 
+                               (wo_data['tech_time'].astype(str).str.contains(today_date))])
             
-            if (p_cnt + w_cnt + d_cnt) > 0:
+            total_active = p_cnt + w_cnt + d_cnt
+            
+            if total_active > 0:
                 msg += f"WO. {wo}\n"
-                msg += f"จำนวน{unit}ที่เสียทั้งหมด {p_cnt + w_cnt + d_cnt} {unit}\n"
-                msg += f"  - อยู่ระหว่างวิเคราะห์ {p_cnt} {unit}\n"
-                msg += f"  - รอพาร์ท {w_cnt} {unit}\n"
-                msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
+                msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_active} {unit}\n"
+                
+                # --- เงื่อนไข: ถ้า > 0 ถึงจะแสดงบรรทัดนั้น ---
+                if p_cnt > 0:
+                    msg += f"  - อยู่ระหว่างวิเคราะห์ {p_cnt} {unit}\n"
+                if w_cnt > 0:
+                    msg += f"  - รอพาร์ท {w_cnt} {unit}\n"
+                if d_cnt > 0:
+                    msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
+                msg += "\n" # เว้นบรรทัดระหว่าง WO เพื่อให้อ่านง่าย
+
+msg += "--------------------------------\n"
+    msg += f"สรุปภาพรวม {app_mode}\n"
+    
+    if app_mode == "Machine":
+        for stn in sorted(df_mode['station'].unique()):
+            stn_data = df_mode[df_mode['station'] == stn]
+            s_p = len(stn_data[stn_data['status'] == 'Pending'])
+            s_w = len(stn_data[stn_data['status'] == 'Wait Part'])
+            s_d = len(stn_data[(stn_data['status'].isin(['Complete', 'Scrap'])) & 
+                              (stn_data['tech_time'].astype(str).str.contains(today_date))])
+            
+            if (s_p + s_w + s_d) > 0:
+                msg += f"Station: {stn}\n"
+                # สร้าง list สำหรับเก็บข้อความเฉพาะที่ > 0
+                parts = []
+                if s_p > 0: parts.append(f"วิเคราะห์ {s_p} {unit}")
+                if s_w > 0: parts.append(f"รอพาร์ท {s_w} {unit}")
+                if s_d > 0: parts.append(f"ซ่อมเสร็จ {s_d} {unit}")
+                msg += f"  - " + " | ".join(parts) + "\n"
+    else:
+        # สำหรับ PCBA หรืออื่นๆ สรุปยอดรวมแบบซ่อนเลข 0
+        total_all = len(pending_df) + len(wait_part_df) + len(done_today_df)
+        msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_all} {unit}\n"
+        
+        if len(pending_df) > 0:
+            msg += f"  - อยู่ระหว่างวิเคราะห์ {len(pending_df)} {unit}\n"
+        if len(wait_part_df) > 0:
+            msg += f"  - รอพาร์ท {len(wait_part_df)} {unit}\n"
+        if len(done_today_df) > 0:
+            msg += f"  - ซ่อมเสร็จ {len(done_today_df)} {unit}\n"
 
     msg += "--------------------------------\n"
-    msg += f"สรุปภาพรวม {app_mode}\n"
     msg += f"รายงานโดย: {st.session_state.nickname}"
+    
     send_line(msg)
     st.success("ส่งรายงานเรียบร้อย!")
-
 # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
