@@ -23,10 +23,11 @@ def get_now():
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
 @st.cache_resource
+
 def init_all():
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
