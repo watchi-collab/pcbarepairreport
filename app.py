@@ -288,7 +288,7 @@ elif role == "tech":
             if not job.empty:
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2
-                display_user_images(j.get('user_image', ''))
+                display_images_with_link(j.get('user_image', ''), "รูปอาการเสียจาก User")
                 
                 with st.form("tech_update"):
                     res = st.radio("Status:", ["Complete", "Scrap", "Wait Part"], horizontal=True)
