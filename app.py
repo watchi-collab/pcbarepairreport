@@ -19,8 +19,8 @@ st.set_page_config(page_title="Repair Management System PRO", layout="wide", pag
 SHEET_ID = "1KtW9m3hFq2sBUeRkNATvD4nRKu_cDCoZENXk7WgOafc"
 
 def get_now():
-    tz = pytz.timezone('Asia/Bangkok')
-    return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+    tz = pytz.timezone('Asia/Bangkok')
+    return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
 @st.cache_resource
 def init_all():
