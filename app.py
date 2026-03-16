@@ -107,7 +107,6 @@ def send_daily_summary(df, app_mode):
     today_date = now.strftime("%Y-%m-%d") 
     today_display = now.strftime("%d/%m/%Y")
     
-    # กรองเฉพาะโหมดที่เลือก (PCBA/Machine)
     df_mode = df[df['category'] == app_mode].copy()
     if df_mode.empty:
         st.warning("ไม่มีข้อมูลสำหรับรายงาน")
@@ -118,30 +117,25 @@ def send_daily_summary(df, app_mode):
     msg += f"ส่วนงาน: {app_mode}\n"
     msg += "--------------------------------\n"
 
-    # --- ส่วนสำคัญ: ปรับการดึงข้อมูลงานของวันนี้ ---
-    # 1. งานที่ค้างอยู่ (ทุก WO)
+    # กรองงานค้าง (ทุกวัน) และงานเสร็จ (เฉพาะวันนี้)
     pending_df = df_mode[df_mode['status'] == 'Pending']
     wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
-    
-    # 2. งานที่ซ่อมเสร็จ "เฉพาะวันนี้" (ตรวจสอบจากคอลัมน์ O: tech_time)
-    # ใช้ .str.contains เพื่อความยืดหยุ่นกรณีมี Timestamp ต่อท้าย
     done_today_df = df_mode[
         (df_mode['status'].isin(['Complete', 'Scrap'])) & 
-        (df_mode['tech_time'].astype(str).str.contains(today_date))
+        (df_mode['tech_time'].astype(str).str.contains(today_date)) # เช็คจาก Column O
     ]
     
-    # รวม Work Order ทั้งหมดที่มีความเคลื่อนไหว
     wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
 
     if len(wo_list) == 0:
         msg += f"ไม่มีงานค้างและไม่มีงานเสร็จในวันนี้ 🎉\n"
     else:
-        for wo in sorted([w for w in wo_list if w]): # กรองค่าว่างออกและเรียงลำดับ
+        for wo in sorted(wo_list):
+            if not wo: continue
             wo_data = df_mode[df_mode['work_order'] == wo]
             
             p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
             w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
-            # นับเฉพาะที่เสร็จวันนี้ใน WO นั้นๆ
             d_cnt = len(wo_data[
                 (wo_data['status'].isin(['Complete', 'Scrap'])) & 
                 (wo_data['tech_time'].astype(str).str.contains(today_date))
@@ -155,12 +149,27 @@ def send_daily_summary(df, app_mode):
                 msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
 
     msg += "--------------------------------\n"
-    msg += f"รายงานโดย: {st.session_state.nickname}"
+    msg += f"สรุปภาพรวม {app_mode}\n"
     
-    # ส่งเข้า LINE
-    send_line(msg)
-    st.success("🚀 ส่งรายงานสรุปเข้า LINE Group เรียบร้อยแล้ว!")
+    if app_mode == "Machine":
+        for stn in sorted(df_mode['station'].unique()):
+            stn_data = df_mode[df_mode['station'] == stn]
+            s_p = len(stn_data[stn_data['status'] == 'Pending'])
+            s_w = len(stn_data[stn_data['status'] == 'Wait Part'])
+            s_d = len(stn_data[(stn_data['status'].isin(['Complete', 'Scrap'])) & (stn_data['tech_time'].astype(str).str.contains(today_date))])
+            if (s_p + s_w + s_d) > 0:
+                msg += f"Station: {stn}\n"
+                msg += f"  - อยู่ระหว่างวิเคราะห์ {s_p} {unit} | รอพาร์ท {s_w} {unit} | ซ่อมเสร็จ {s_d} {unit}\n"
+    else:
+        msg += f"จำนวน{unit}ที่เสียทั้งหมด {len(pending_df) + len(wait_part_df) + len(done_today_df)} {unit}\n"
+        msg += f"  - อยู่ระหว่างวิเคราะห์ {len(pending_df)} {unit}\n"
+        msg += f"  - รอพาร์ท {len(wait_part_df)} {unit}\n"
+        msg += f"  - ซ่อมเสร็จ {len(done_today_df)} {unit}\n"
 
+    msg += "--------------------------------\n"
+    msg += f"รายงานโดย: {st.session_state.nickname}"
+    send_line(msg)
+    st.success("ส่งรายงานเรียบร้อย!")
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
         st.info(f"ไม่มี{caption_prefix}")
@@ -282,7 +291,7 @@ elif role == "tech":
                 display_user_images(j.get('user_image', ''))
                 
                 with st.form("tech_update"):
-                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                    res = st.radio("Status:", ["Complete", "Scrap", "Wait Part"], horizontal=True)
                     p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
@@ -303,7 +312,7 @@ elif role == "tech":
                                 ws_main.update_acell(f'Q{ridx}', t_urls)
                             
                             # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
-                            if res in ["Complate", "Scrap"]:
+                            if res in ["Complete", "Scrap"]:
                                 try:
                                     tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
                                     tech_msg += f"SN: {sn_scan}\n"
