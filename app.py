@@ -269,11 +269,13 @@ if role == "user":
             u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
             if st.form_submit_button("ยืนยันแจ้งซ่อม"):
                 if sel_m and sn and wo and stat:
-                    fail_en = translate_to_en(fail_th)
-                    urls = upload_images(u_imgs, "REQ", sn)
+                    with st.spinner("กำลังแปลและอัปโหลด..."):
+                        fail_en = translate_to_en(fail_th)
+                        urls = upload_images(u_imgs, "REQ", sn)
                     new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                     ws_main.append_row(new_row)
-                    st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                    send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nBy: {nick}")
+                    st.success(f"บันทึก SN: {sn} เรียบร้อย!"); time.sleep(1); st.rerun()
                 else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model").strip().upper()
