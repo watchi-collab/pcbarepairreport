@@ -351,6 +351,16 @@ if role == "user":
                     display_images_with_link(row['user_image'], "รูปภาพที่แจ้งซ่อม")
 # --- ROLE: TECH (ปรับปรุงการดึงข้อมูลจาก Column Action และล้างค่า Column M) ---
 elif role == "tech":
+
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📊 Reporting")
+        # ใช้ปุ่มสีแดงหรือสีที่เด่นขึ้นเพื่อให้สังเกตง่าย
+        if st.button("📢 ส่งรายงานสรุปยอดเข้า LINE", use_container_width=True, help="ส่งสรุปงานค้างและงานเสร็จประจำวัน"):
+            with st.spinner("กำลังประมวลผลรายงาน..."):
+                # เรียกใช้ฟังก์ชันที่เราเพิ่งรวมกันไว้
+                send_daily_summary(df_all, app_mode)
+                
     st.header("🔧 Technician Workspace")
     sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข", key="tech_sn_input").strip()
     
