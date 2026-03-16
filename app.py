@@ -106,19 +106,60 @@ def send_daily_summary(df, app_mode):
     now = datetime.now(tz)
     today_date = now.strftime("%Y-%m-%d") 
     today_display = now.strftime("%d/%m/%Y")
+    
+    # กรองเฉพาะโหมดที่เลือก (PCBA/Machine)
     df_mode = df[df['category'] == app_mode].copy()
     if df_mode.empty:
         st.warning("ไม่มีข้อมูลสำหรับรายงาน")
         return
+
     unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
-    msg = f"📊 รายงาน Repair: {app_mode} ({today_display})\n"
+    msg = f"รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
+    msg += f"ส่วนงาน: {app_mode}\n"
     msg += "--------------------------------\n"
+
+    # --- ส่วนสำคัญ: ปรับการดึงข้อมูลงานของวันนี้ ---
+    # 1. งานที่ค้างอยู่ (ทุก WO)
+    pending_df = df_mode[df_mode['status'] == 'Pending']
+    wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
     
-    # Logic สำหรับสรุปราย WO และ Status
-    # ... (ตามโค้ดที่คุณเขียนไว้ในคำถาม)
+    # 2. งานที่ซ่อมเสร็จ "เฉพาะวันนี้" (ตรวจสอบจากคอลัมน์ O: tech_time)
+    # ใช้ .str.contains เพื่อความยืดหยุ่นกรณีมี Timestamp ต่อท้าย
+    done_today_df = df_mode[
+        (df_mode['status'].isin(['Complate', 'Scrap'])) & 
+        (df_mode['tech_time'].astype(str).str.contains(today_date))
+    ]
+    
+    # รวม Work Order ทั้งหมดที่มีความเคลื่อนไหว
+    wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
+
+    if len(wo_list) == 0:
+        msg += f"ไม่มีงานค้างและไม่มีงานเสร็จในวันนี้ 🎉\n"
+    else:
+        for wo in sorted([w for w in wo_list if w]): # กรองค่าว่างออกและเรียงลำดับ
+            wo_data = df_mode[df_mode['work_order'] == wo]
+            
+            p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
+            w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
+            # นับเฉพาะที่เสร็จวันนี้ใน WO นั้นๆ
+            d_cnt = len(wo_data[
+                (wo_data['status'].isin(['Complate', 'Scrap'])) & 
+                (wo_data['tech_time'].astype(str).str.contains(today_date))
+            ])
+            
+            if (p_cnt + w_cnt + d_cnt) > 0:
+                msg += f"WO. {wo}\n"
+                msg += f"จำนวน{unit}ที่เสียทั้งหมด {p_cnt + w_cnt + d_cnt} {unit}\n"
+                msg += f"  - อยู่ระหว่างวิเคราะห์ {p_cnt} {unit}\n"
+                msg += f"  - รอพาร์ท {w_cnt} {unit}\n"
+                msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
+
+    msg += "--------------------------------\n"
     msg += f"รายงานโดย: {st.session_state.nickname}"
+    
+    # ส่งเข้า LINE
     send_line(msg)
-    st.success("ส่งรายงาน LINE เรียบร้อยแล้ว")
+    st.success("🚀 ส่งรายงานสรุปเข้า LINE Group เรียบร้อยแล้ว!")
 
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
@@ -228,7 +269,6 @@ if role == "user":
             with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
                 st.write(f"**Station:** {row['station']} | **Problem:** {row['failure']}")
 
-# --- ROLE: TECH ---
 elif role == "tech":
     col_main, col_side = st.columns([2, 1])
     with col_main:
@@ -237,36 +277,54 @@ elif role == "tech":
         if sn_scan:
             job = df_all[(df_all['serial_number']==sn_scan) & (df_all['category']==app_mode)]
             if not job.empty:
-                j = job.iloc[-1]; ridx = job.index[-1] + 2
+                j = job.iloc[-1]
+                ridx = job.index[-1] + 2
+                display_user_images(j.get('user_image', ''))
                 
-                # แสดงรูปจาก User
-                with st.expander("📸 ดูรูปภาพอาการเสียจาก User", expanded=True):
-                    display_images_with_link(j.get('user_image', ''), "รูปจาก User")
-
                 with st.form("tech_update"):
-                    res = st.radio("Status:", ["Complete", "Scrap", "Wait Part"], horizontal=True)
-                    p_name = st.text_input("Waiting Part Name (ถ้ามี)", value=j.get('wait_part_name', ""))
+                    res = st.radio("Status:", ["Complate", "Scrap", "Wait Part"], horizontal=True)
+                    p_name = st.text_input("Waiting Part Name", value=j.get('wait_part_name', ""))
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
-                    case_th = st.text_input("Root Cause (ภาษาไทย)")
-                    act_th = st.text_area("Action Taken (ภาษาไทย)")
+                    case_th = st.text_input("Root Cause")
+                    act_th = st.text_area("Action Taken")
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
                     
-                    if st.form_submit_button("บันทึกการแก้ไข", use_container_width=True):
+                    if st.form_submit_button("บันทึกข้อมูล"):
                         if case_th and act_th:
-                            with st.spinner("บันทึกข้อมูล..."):
-                                case_en = translate_to_en(case_th)
-                                act_en = translate_to_en(act_th)
-                                t_urls = upload_images(tech_imgs, "FIX", sn_scan)
-                                ws_main.update_acell(f'B{ridx}', res)
-                                ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
-                                if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                                
-                                if res in ["Complete", "Scrap"]:
-                                    send_line(f"✅ งานซ่อมเสร็จสิ้น!\nSN: {sn_scan}\nStatus: {res}\nAction: {act_en}\nBy Tech: {nick}")
-                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                        else: st.warning("กรุณากรอก Root Cause และ Action")
-            else: st.error("ไม่พบข้อมูล SN นี้")
+                            case_en = translate_to_en(case_th)
+                            act_en = translate_to_en(act_th)
+                            t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                            
+                            # 1. บันทึกข้อมูลลง Google Sheets
+                            ws_main.update_acell(f'B{ridx}', res)
+                            ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
+                            if t_urls: 
+                                ws_main.update_acell(f'Q{ridx}', t_urls)
+                            
+                            # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
+                            if res in ["Complate", "Scrap"]:
+                                try:
+                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
+                                    tech_msg += f"SN: {sn_scan}\n"
+                                    tech_msg += f"สถานะ: {res}\n"
+                                    tech_msg += f"Classification: {cls}\n"
+                                    tech_msg += f"สาเหตุ: {case_th}\n"
+                                    tech_msg += f"การแก้ไข: {act_th}\n"
+                                    tech_msg += f"ช่างผู้ดูแล: {nick}"
+                                    
+                                    send_line(tech_msg)
+                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
+                                except Exception as e:
+                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
+
+                            st.success("บันทึกสำเร็จ!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
+            else:
+                st.error("ไม่พบข้อมูล Serial Number นี้ในระบบ")
     
     with col_side:
         st.subheader("📋 งานค้าง (Pending)")
