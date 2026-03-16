@@ -25,14 +25,12 @@ def get_now():
 @st.cache_resource
 def init_all():
     try:
-        # ดึงข้อมูลจาก Streamlit Secrets
         creds_dict = st.secrets["gcp_service_account"]
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
         
-        # ตั้งค่า Cloudinary
         cloudinary.config(
             cloud_name = "dn8n04koh", 
             api_key = "352259521151764",
@@ -44,16 +42,24 @@ def init_all():
         return e, False
 
 ss, success = init_all()
-
 if not success:
-    st.error(f"❌ Connection Error: {ss}")
-    st.stop()
+    st.error(f"❌ Connection Error: {ss}"); st.stop()
 
 # --- 2. HELPERS ---
 def validate_sn(text):
     if not text: return ""
     return re.sub(r'[^a-zA-Z0-9]', '', text).upper()
 
+def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
+    if not url_string:
+        st.info(f"ไม่มี{caption_prefix}")
+        return
+    urls = [u.strip() for u in str(url_string).split(",") if u.strip()]
+    for idx, url in enumerate(urls):
+        st.image(url, caption=f"{caption_prefix} #{idx+1}", use_container_width=True)
+        st.code(url)
+
+# (ฟังก์ชันอื่นๆ เช่น send_line, send_daily_summary ให้คงเดิมแต่ระวัง indentation)
 def get_report_periods():
     tz = pytz.timezone('Asia/Bangkok')
     now = datetime.now(tz).replace(tzinfo=None) 
