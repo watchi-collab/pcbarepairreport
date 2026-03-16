@@ -30,9 +30,13 @@ def init_all():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
+        
+        # ปรับให้ใช้จาก secrets เพื่อความปลอดภัย
         cloudinary.config(
-            cloud_name = "dn8n04koh", api_key = "352259521151764",
-            api_secret = "R9S6W2_-CGIP4d-_uKA-nKW1gOg", secure = True
+            cloud_name = st.secrets["cloudinary"]["cloud_name"], 
+            api_key = st.secrets["cloudinary"]["api_key"],
+            api_secret = st.secrets["cloudinary"]["api_secret"], 
+            secure = True
         )
         return ss, True
     except Exception as e: return e, False
@@ -41,7 +45,23 @@ ss, success = init_all()
 if not success:
     st.error(f"❌ Connection Error: {ss}"); st.stop()
 
-# --- 2. HELPERS ---
+# --- 2. HELPERS (New Log & Validation Included) ---
+
+def write_log(action, details=""):
+    """ บันทึก Log การใช้งานลงใน Worksheet 'logs' """
+    try:
+        ws_log = ss.worksheet("logs")
+        new_row = [
+            get_now(), 
+            st.session_state.get("user", "System"),
+            st.session_state.get("nickname", "Unknown"),
+            st.session_state.get("app_mode", "N/A"),
+            action, 
+            details
+        ]
+        ws_log.append_row(new_row)
+    except: pass # ป้องกันระบบค้างถ้าเขียน Log ไม่สำเร็จ
+
 def validate_sn(text):
     if not text: return ""
     return re.sub(r'[^a-zA-Z0-9]', '', text).upper()
@@ -117,12 +137,11 @@ def send_daily_summary(df, app_mode):
     msg += f"ส่วนงาน: {app_mode}\n"
     msg += "--------------------------------\n"
 
-    # กรองงานค้าง (ทุกวัน) และงานเสร็จ (เฉพาะวันนี้)
     pending_df = df_mode[df_mode['status'] == 'Pending']
     wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
     done_today_df = df_mode[
         (df_mode['status'].isin(['Complete', 'Scrap'])) & 
-        (df_mode['tech_time'].astype(str).str.contains(today_date)) # เช็คจาก Column O
+        (df_mode['tech_time'].astype(str).str.contains(today_date))
     ]
     
     wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
@@ -133,13 +152,9 @@ def send_daily_summary(df, app_mode):
         for wo in sorted(wo_list):
             if not wo: continue
             wo_data = df_mode[df_mode['work_order'] == wo]
-            
             p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
             w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
-            d_cnt = len(wo_data[
-                (wo_data['status'].isin(['Complete', 'Scrap'])) & 
-                (wo_data['tech_time'].astype(str).str.contains(today_date))
-            ])
+            d_cnt = len(wo_data[(wo_data['status'].isin(['Complete', 'Scrap'])) & (wo_data['tech_time'].astype(str).str.contains(today_date))])
             
             if (p_cnt + w_cnt + d_cnt) > 0:
                 msg += f"WO. {wo}\n"
@@ -161,15 +176,14 @@ def send_daily_summary(df, app_mode):
                 msg += f"Station: {stn}\n"
                 msg += f"  - อยู่ระหว่างวิเคราะห์ {s_p} {unit} | รอพาร์ท {s_w} {unit} | ซ่อมเสร็จ {s_d} {unit}\n"
     else:
-        msg += f"จำนวน{unit}ที่เสียทั้งหมด {len(pending_df) + len(wait_part_df) + len(done_today_df)} {unit}\n"
-        msg += f"  - อยู่ระหว่างวิเคราะห์ {len(pending_df)} {unit}\n"
-        msg += f"  - รอพาร์ท {len(wait_part_df)} {unit}\n"
-        msg += f"  - ซ่อมเสร็จ {len(done_today_df)} {unit}\n"
+        msg += f"รวม {app_mode}: วิเคราะห์ {len(pending_df)} | รอพาร์ท {len(wait_part_df)} | เสร็จ {len(done_today_df)} {unit}\n"
 
     msg += "--------------------------------\n"
     msg += f"รายงานโดย: {st.session_state.nickname}"
     send_line(msg)
+    write_log("SEND_DAILY_REPORT", f"Mode: {app_mode}")
     st.success("ส่งรายงานเรียบร้อย!")
+
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
         st.info(f"ไม่มี{caption_prefix}")
@@ -197,6 +211,7 @@ if not st.session_state.is_logged_in:
                     "nickname": match.iloc[0].get('nickname', u), 
                     "app_mode": mode
                 })
+                write_log("LOGIN", f"Logged in to {mode}")
                 st.rerun()
             else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
@@ -214,7 +229,6 @@ with st.sidebar:
     st.write(f"**Mode:** {app_mode} | **Role:** {role.upper()}")
     st.divider()
     
-    # Quick Status Edit
     st.subheader("📝 Quick Edit Status")
     sn_edit_input = st.text_input("Scan SN to Edit").strip()
     sn_edit = validate_sn(sn_edit_input)
@@ -229,16 +243,17 @@ with st.sidebar:
                 if st.button("บันทึกการเปลี่ยนสถานะ"):
                     r_idx = edit_row.index[-1] + 2
                     ws_main.update_acell(f'B{r_idx}', new_stat)
+                    write_log("QUICK_EDIT_STATUS", f"SN: {sn_edit} -> {new_stat}")
                     st.success("Updated!"); time.sleep(1); st.rerun()
         else: st.warning("ไม่พบ SN")
     
     st.divider()
     if st.button("🚪 ออกจากระบบ", use_container_width=True):
+        write_log("LOGOUT")
         st.session_state.is_logged_in = False; st.rerun()
 
 # --- 6. INTERFACES BY ROLE ---
 
-# --- ROLE: USER ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
@@ -259,16 +274,21 @@ if role == "user":
             u_imgs = st.file_uploader("แนบรูปภาพอาการเสีย", accept_multiple_files=True)
             
             if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
-                if sel_m and sn and wo and stat:
+                # --- INPUT VALIDATION ---
+                if not (sel_m and sn and wo and stat and fail_th):
+                    st.warning("❌ กรุณากรอกข้อมูลให้ครบถ้วนทุกช่อง")
+                elif len(sn) < 5:
+                    st.error("❌ Serial Number ไม่ถูกต้อง (ต้องมีอย่างน้อย 5 ตัวอักษร)")
+                else:
                     with st.spinner("กำลังส่งข้อมูล..."):
                         fail_en = translate_to_en(fail_th)
                         urls = upload_images(u_imgs, "REQ", sn)
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
+                        write_log("CREATE_REPAIR", f"SN: {sn}, WO: {wo}")
                         send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}")
                         st.success(f"บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
-    
+
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
         my_jobs = df_all[df_all['category'] == app_mode]
@@ -305,48 +325,32 @@ elif role == "tech":
                             act_en = translate_to_en(act_th)
                             t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                             
-                            # 1. บันทึกข้อมูลลง Google Sheets
                             ws_main.update_acell(f'B{ridx}', res)
                             ws_main.update(f'J{ridx}:O{ridx}', [[case_en, act_en, cls, p_name, nick, get_now()]])
-                            if t_urls: 
-                                ws_main.update_acell(f'Q{ridx}', t_urls)
+                            if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
                             
-                            # 2. ส่งแจ้งเตือน LINE เฉพาะเมื่อสถานะเป็น Complate หรือ Scrap
+                            write_log("TECH_UPDATE", f"SN: {sn_scan}, Status: {res}")
+
                             if res in ["Complete", "Scrap"]:
                                 try:
-                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
-                                    tech_msg += f"SN: {sn_scan}\n"
-                                    tech_msg += f"สถานะ: {res}\n"
-                                    tech_msg += f"Classification: {cls}\n"
-                                    tech_msg += f"สาเหตุ: {case_th}\n"
-                                    tech_msg += f"การแก้ไข: {act_th}\n"
-                                    tech_msg += f"ช่างผู้ดูแล: {nick}"
-                                    
+                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\nSN: {sn_scan}\nสถานะ: {res}\nช่าง: {nick}"
                                     send_line(tech_msg)
-                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
-                                except Exception as e:
-                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
-
-                            st.success("บันทึกสำเร็จ!")
-                            time.sleep(1.5)
-                            st.rerun()
-                        else:
-                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
-            else:
-                st.error("ไม่พบข้อมูล Serial Number นี้ในระบบ")
+                                except: pass
+                            
+                            st.success("บันทึกสำเร็จ!"); time.sleep(1.5); st.rerun()
+                        else: st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
+            else: st.error("ไม่พบข้อมูล Serial Number นี้ในระบบ")
     
     with col_side:
         st.subheader("📋 งานค้าง (Pending)")
         pending_list = df_all[(df_all['category'] == app_mode) & (df_all['status'].isin(["Pending", "Wait Part"]))]
         st.dataframe(pending_list[['serial_number', 'model', 'status']], use_container_width=True, hide_index=True)
 
-# --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
     st.header(f"🏛️ Executive Dashboard: {app_mode}")
     df_report = df_all[df_all['category'] == app_mode].copy()
     df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce').dt.tz_localize(None)
 
-    # Metrics Row
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("งานทั้งหมด", f"{len(df_report)} {unit}")
     m2.metric("Pending", f"{len(df_report[df_report['status']=='Pending'])} {unit}")
@@ -384,11 +388,9 @@ elif role in ["admin", "super admin"]:
             else: st.warning("ไม่พบ SN")
 
     with tabs[3]:
-        # Raw Data Editor
         st.subheader("📝 Edit Raw Data")
         edited_df = st.data_editor(df_report.tail(50), use_container_width=True)
         
-        # Super Admin Control
         if role == "super admin":
             st.divider()
             st.subheader("🔑 Super Admin Panel")
@@ -404,6 +406,7 @@ elif role in ["admin", "super admin"]:
                     nr = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
                     if st.button("Save User"):
                         ss.worksheet("users").append_row([nu, np, nr, nn])
+                        write_log("ADD_USER", f"Added user: {nu}")
                         st.success("User added!"); st.rerun()
             with s_col2:
                 st.write("🚨 **Danger Zone**")
@@ -414,5 +417,6 @@ elif role in ["admin", "super admin"]:
                     try:
                         cell = ws_main.find(del_sn)
                         ws_main.delete_rows(cell.row)
+                        write_log("DELETE_RECORD", f"Deleted SN: {del_sn}")
                         st.error(f"Deleted SN {del_sn}"); time.sleep(1); st.rerun()
                     except: st.warning("SN not found")
