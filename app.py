@@ -126,7 +126,7 @@ def send_daily_summary(df, app_mode):
     # 2. งานที่ซ่อมเสร็จ "เฉพาะวันนี้" (ตรวจสอบจากคอลัมน์ O: tech_time)
     # ใช้ .str.contains เพื่อความยืดหยุ่นกรณีมี Timestamp ต่อท้าย
     done_today_df = df_mode[
-        (df_mode['status'].isin(['Complate', 'Scrap'])) & 
+        (df_mode['status'].isin(['Complete', 'Scrap'])) & 
         (df_mode['tech_time'].astype(str).str.contains(today_date))
     ]
     
@@ -143,7 +143,7 @@ def send_daily_summary(df, app_mode):
             w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
             # นับเฉพาะที่เสร็จวันนี้ใน WO นั้นๆ
             d_cnt = len(wo_data[
-                (wo_data['status'].isin(['Complate', 'Scrap'])) & 
+                (wo_data['status'].isin(['Complete', 'Scrap'])) & 
                 (wo_data['tech_time'].astype(str).str.contains(today_date))
             ])
             
