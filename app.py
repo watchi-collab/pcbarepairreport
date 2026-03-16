@@ -354,12 +354,19 @@ elif role == "tech":
 
     with st.sidebar:
         st.markdown("---")
-        st.subheader("📊 Reporting")
-        # ใช้ปุ่มสีแดงหรือสีที่เด่นขึ้นเพื่อให้สังเกตง่าย
-        if st.button("📢 ส่งรายงานสรุปยอดเข้า LINE", use_container_width=True, help="ส่งสรุปงานค้างและงานเสร็จประจำวัน"):
-            with st.spinner("กำลังประมวลผลรายงาน..."):
-                # เรียกใช้ฟังก์ชันที่เราเพิ่งรวมกันไว้
-                send_daily_summary(df_all, app_mode)
+        st.subheader("📊 Reporting System")
+        
+        # ตัวเลือกประเภทรายงาน
+        report_type = st.selectbox(
+            "เลือกส่วนงานที่ต้องการรายงาน:",
+            ["PCBA", "Machine"],
+            index=0 if app_mode == "PCBA" else 1
+        )
+        
+        if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
+            with st.spinner(f"กำลังสรุปข้อมูล {report_type}..."):
+                # เรียกฟังก์ชันเดิมที่เราทำไว้ โดยส่งค่า report_type ที่เลือกเข้าไป
+                send_daily_summary(df_all, report_type)
                 
     st.header("🔧 Technician Workspace")
     sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข", key="tech_sn_input").strip()
