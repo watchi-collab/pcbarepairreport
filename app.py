@@ -230,11 +230,10 @@ with st.sidebar:
     if st.button("🚪 ออกจากระบบ", use_container_width=True):
         st.session_state.is_logged_in = False; st.rerun()
 
-# --- 6. INTERFACES BY ROLE (USER PORTAL - FULL OPTIMIZED) ---
+# --- 6. INTERFACES BY ROLE (USER PORTAL - WITH SN VALIDATION) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     
-    # ส่วนจัดการ State สำหรับการรีเซ็ตค่า File Uploader
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
 
@@ -244,63 +243,57 @@ if role == "user":
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
         
-        # clear_on_submit=True จะล้างค่า text_input และ text_area ทั้งหมดในฟอร์มเมื่อกดส่ง
-        with st.form("req_form", clear_on_submit=True):
+        with st.form("req_form", clear_on_submit=False): # เปลี่ยนเป็น False เพื่อควบคุมการเคลียร์เอง
             c1, c2 = st.columns(2)
             
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
             
-            # ช่อง SN: เมื่อ rerun ระบบจะกลับมาโฟกัสที่ช่อง input แรกเสมอ
+            # รับค่า SN
             sn_input = c1.text_input("Serial Number", key="sn_field").strip()
-            sn = validate_sn(sn_input)
             
             wo = c2.text_input("Work Order").strip().upper()
             stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
             fail_th = c2.text_area("อาการเสีย (Problem Description)")
             
-            # ใช้ dynamic key เพื่อบังคับเคลียร์รูปภาพใน uploader
             u_imgs = st.file_uploader("📸 แนบรูปภาพ (จะส่งเข้า LINE)", 
                                      accept_multiple_files=True, 
                                      key=f"user_upload_{st.session_state.uploader_key}")
             
-            submit_btn = st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True)
-            
-            if submit_btn:
-                if sel_m and sn and wo and stat:
-                    with st.spinner("กำลังแปลภาษา บันทึกข้อมูล และส่งรูป..."):
-                        # 1. แปลภาษาไทยเป็นอังกฤษก่อนบันทึก
+            if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
+                # --- ตรวจสอบ SN ว่าเป็นภาษาอังกฤษ/ตัวเลข เท่านั้นหรือไม่ ---
+                # หากมีภาษาไทย หรืออักขระพิเศษ ระบบจะเด้ง Error และไม่เคลียร์ค่า
+                if not re.match(r'^[a-zA-Z0-9]+$', sn_input):
+                    st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง: '{sn_input}' (ต้องเป็นภาษาอังกฤษและตัวเลขเท่านั้น)")
+                    st.warning("กรุณาเปลี่ยนภาษาคีย์บอร์ดแล้วแสกนใหม่อีกครั้ง")
+                
+                elif sel_m and sn_input and wo and stat:
+                    with st.spinner("กำลังบันทึกข้อมูล..."):
+                        # ทำความสะอาด SN อีกรอบ
+                        sn = validate_sn(sn_input)
+                        
+                        # 1. แปลภาษา
                         fail_en = translate_to_en(fail_th)
                         
-                        # 2. อัปโหลดรูปภาพไปยัง Cloudinary
+                        # 2. อัปโหลดรูป
                         urls = upload_images(u_imgs, "REQ", sn)
                         
-                        # 3. บันทึกข้อมูลลง Google Sheets
+                        # 3. บันทึก Sheets
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
                         
-                        # 4. ส่งแจ้งเตือนเข้ากลุ่ม LINE (พร้อมรูปภาพแรก)
-                        line_msg = f"🚨 New Repair Request! ({app_mode})\n"
-                        line_msg += f"SN: {sn}\n"
-                        line_msg += f"Model: {sel_m}\n"
-                        line_msg += f"Problem: {fail_en}\n"
-                        line_msg += f"By: {nick}"
-                        
-                        # ฟังก์ชัน send_line จะทำการแยกรูปแรกจาก urls ให้อัตโนมัติ
+                        # 4. ส่ง LINE
+                        line_msg = f"🚨 New Job! ({app_mode})\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}"
                         send_line(line_msg, image_url=urls)
                         
-                        # 5. จัดการ State เพื่อล้างค่ารูปภาพและรีเซ็ตหน้าจอ
+                        # --- 5. บันทึกเสร็จสิ้น ค่อยทำการเคลียร์ค่าทั้งหมด ---
                         st.session_state.uploader_key += 1 
-                        
-                        st.success(f"บันทึกสำเร็จ! (Translated: {fail_en})")
+                        st.success("บันทึกสำเร็จ!")
                         time.sleep(1)
-                        
-                        # การ rerun จะทำให้ cursor กลับไปโฟกัสที่ช่องแรก (SN) โดยอัตโนมัติ
-                        st.rerun()
+                        st.rerun() # เคลียร์หน้าจอทั้งหมดและ Focus กลับไปที่ SN
                 else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
-
+                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     with t2:
         search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
         my_jobs = df_all[df_all['category'] == app_mode]
