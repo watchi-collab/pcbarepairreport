@@ -433,4 +433,4 @@ elif role in ["admin", "super admin"]:
                         cell = ws_main.find(del_sn)
                         ws_main.delete_rows(cell.row)
                         st.error(f"Deleted SN {del_sn}"); time.sleep(1); st.rerun()
-                    except: st.warning("SN not found")   รีวิว code
+                    except: st.warning("SN not found") 
