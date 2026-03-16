@@ -91,15 +91,25 @@ def upload_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-def send_line(msg):
-    token = st.secrets.get("line_channel_access_token")
-    group_id = st.secrets.get("line_group_id")
-    if not token or not group_id: return
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-    payload = {"to": group_id, "messages": [{"type": "text", "text": msg}]}
-    try: requests.post(url, headers=headers, json=payload)
-    except: pass
+def send_line(msg, image_url=None):
+    token = st.secrets.get("line_channel_access_token")
+    group_id = st.secrets.get("line_group_id")
+    if not token or not group_id: return
+    
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    
+    messages = [{"type": "text", "text": msg}]
+    if image_url:
+        # LINE ต้องการทั้งภาพจริงและภาพพรีวิว (ใช้ URL เดียวกันได้)
+        messages.append({
+            "type": "image",
+            "originalContentUrl": image_url.split(',')[0], # เอาเฉพาะรูปแรก
+            "previewImageUrl": image_url.split(',')[0]
+        })
+        
+    payload = {"to": group_id, "messages": messages}
+    requests.post(url, headers=headers, json=payload)
 
 def send_daily_summary(df, app_mode):
     tz = pytz.timezone('Asia/Bangkok')
