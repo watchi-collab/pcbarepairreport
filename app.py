@@ -274,7 +274,7 @@ if role == "user":
                         urls = upload_images(u_imgs, "REQ", sn)
                     new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                     ws_main.append_row(new_row)
-                    send_line(f"🚨 แจ้งซ่อมใหม่!\nMode: {app_mode}\nSN: {sn}\nBy: {nick}")
+                    send_line(f"🚨 แจ้งซ่อม PCBA!\nMode: {app_mode}\nStation: {stat}\nModel: {sel_m}\nSN: {sn}\nProblem: {fail_en}\nBy: {nick}")
                     st.success(f"บันทึก SN: {sn} เรียบร้อย!"); time.sleep(1); st.rerun()
                 else: st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
     with t2:
