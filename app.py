@@ -519,7 +519,35 @@ elif role in ["admin", "super admin"]:
                 with c1: display_images_with_link(row.get('user_image', ''), "รูปจาก User")
                 with c2: display_images_with_link(row.get('tech_image', ''), "รูปจาก Tech")
     with tabs[3]:
-        st.data_editor(df_report.tail(50), use_container_width=True)
-        if role == "super admin":
-            if st.button("♻️ Clear Cache"):
-                st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+        # Raw Data Editor
+        st.subheader("📝 Edit Raw Data")
+        edited_df = st.data_editor(df_report.tail(50), use_container_width=True)
+        
+        # Super Admin Control
+        if role == "super admin":
+            st.divider()
+            st.subheader("🔑 Super Admin Panel")
+            s_col1, s_col2 = st.columns(2)
+            with s_col1:
+                st.write("👥 **User Management**")
+                df_u = get_df("users")
+                st.dataframe(df_u, hide_index=True)
+                with st.expander("Add New User"):
+                    nu = st.text_input("Username")
+                    np = st.text_input("Password", type="password")
+                    nn = st.text_input("Nickname")
+                    nr = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
+                    if st.button("Save User"):
+                        ss.worksheet("users").append_row([nu, np, nr, nn])
+                        st.success("User added!"); st.rerun()
+            with s_col2:
+                st.write("🚨 **Danger Zone**")
+                if st.button("♻️ Clear System Cache"):
+                    st.cache_data.clear(); st.cache_resource.clear(); st.rerun()
+                del_sn = st.text_input("ระบุ SN ที่จะลบถาวร")
+                if st.button("🗑️ Delete Record", type="secondary"):
+                    try:
+                        cell = ws_main.find(del_sn)
+                        ws_main.delete_rows(cell.row)
+                        st.error(f"Deleted SN {del_sn}"); time.sleep(1); st.rerun()
+                    except: st.warning("SN not found")
