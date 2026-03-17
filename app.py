@@ -471,72 +471,116 @@ elif role == "tech":
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
             else: st.warning("ไม่พบข้อมูล")
                 
-# เพิ่มเติมส่วน Super Admin ใน Tab "Management" (tabs[3])
+# --- ROLE: ADMIN / SUPER ADMIN ---
+elif role in ["admin", "super admin"]:
+    st.header(f"🏛️ Executive Dashboard: {app_mode}")
+
+    df_report = df_all[df_all['category'] == app_mode].copy()
+    df_report['tech_datetime'] = pd.to_datetime(df_report['tech_time'], errors='coerce')
+
+    # Metrics Overview
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("งานทั้งหมด", f"{len(df_report)} {unit}")
+    m2.metric("Pending", f"{len(df_report[df_report['status']=='Pending'])} {unit}")
+    m3.metric("Wait Part", f"{len(df_report[df_report['status']=='Wait Part'])} {unit}")
+    m4.metric("Complete/Scrap", f"{len(df_report[df_report['status'].isin(['Complete', 'Scrap'])])} {unit}")
+
+    tabs = st.tabs(["📅 รายงานวันนี้", "📊 รายสัปดาห์", "🖼️ Gallery", "🛠️ Management"])
+
+    with tabs[0]:
+        if st.button("📢 ส่งรายงานสรุปประจำวันเข้า LINE", use_container_width=True):
+            send_daily_summary(df_all, app_mode)
+        st.dataframe(df_report.tail(20), use_container_width=True)
+
+    with tabs[1]:
+        weekly_df = df_report[df_report['tech_datetime'].dt.tz_localize(None) >= start_wk] if not df_report.empty else pd.DataFrame()
+        if not weekly_df.empty:
+            st.bar_chart(weekly_df['classification'].value_counts())
+        else: 
+            st.info("ไม่มีข้อมูลสัปดาห์นี้")
+
+    with tabs[2]:
+        target_sn = st.text_input("🔍 ระบุ SN ดูรูปภาพ").strip().upper()
+        if target_sn:
+            img_job = df_report[df_report['serial_number'] == target_sn]
+            if not img_job.empty:
+                row = img_job.iloc[-1]
+                c1, c2 = st.columns(2)
+                with c1: display_images_with_link(row.get('user_image', ''), "รูปจาก User")
+                with c2: display_images_with_link(row.get('tech_image', ''), "รูปจาก Tech")
 
     with tabs[3]:
-        # ส่วนที่ 1: แก้ไขข้อมูลดิบ (Raw Data Editor)
+        # --- ส่วนที่ 1: แก้ไขข้อมูลงานซ่อม ---
         st.subheader("📝 Edit Raw Data (Repair Logs)")
+        st.info("คุณสามารถแก้ไขข้อมูลในตารางนี้ได้โดยตรง (แสดง 50 รายการล่าสุด)")
         edited_df = st.data_editor(df_report.tail(50), use_container_width=True, key="raw_editor")
         
-        # ส่วนที่ 2: การจัดการผู้ใช้ (User Management) - เฉพาะ Super Admin
+        # --- ส่วนที่ 2: การจัดการผู้ใช้ (เฉพาะ Super Admin) ---
         if role == "super admin":
             st.divider()
             st.subheader("🔑 Super Admin: User Management")
             
-            # ดึงข้อมูลผู้ใช้ปัจจุบัน
+            # ดึงข้อมูลจาก Sheet 'users'
             df_u = get_df("users")
             
-            col_u1, col_u2 = st.columns([2, 1])
+            u_col1, u_col2 = st.columns([1.5, 1])
             
-            with col_u1:
-                st.write("👥 **รายชื่อผู้ใช้ทั้งหมด**")
-                # แสดงตาราง User และสามารถกดลบหรือแก้ไขเบื้องต้นได้
-                st.dataframe(df_u, hide_index=True, use_container_width=True)
+            with u_col1:
+                st.write("👥 **รายชื่อผู้ใช้ปัจจุบัน**")
+                # ตกแต่งหัวข้อตารางให้ดูง่าย
+                st.dataframe(
+                    df_u[['username', 'role', 'nickname', 'line_user_id']], 
+                    hide_index=True, 
+                    use_container_width=True
+                )
             
-            with col_u2:
-                st.write("➕ **เพิ่มผู้ใช้ใหม่**")
+            with u_col2:
+                st.write("➕ **เพิ่มบัญชีผู้ใช้ใหม่**")
                 with st.form("add_user_form", clear_on_submit=True):
-                    new_u = st.text_input("Username (ภาษาอังกฤษ)").strip()
+                    new_u = st.text_input("Username").strip()
                     new_p = st.text_input("Password", type="password").strip()
-                    new_n = st.text_input("Nickname (ชื่อเล่น)").strip()
-                    new_lid = st.text_input("Line User ID (ถ้ามี)").strip()
+                    new_n = st.text_input("Nickname").strip()
+                    new_lid = st.text_input("Line User ID").strip()
                     new_r = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
                     
-                    if st.form_submit_button("บันทึกผู้ใช้ใหม่", use_container_width=True):
+                    if st.form_submit_button("บันทึกข้อมูล", use_container_width=True):
                         if new_u and new_p and new_n:
-                            try:
-                                # ตรวจสอบ Username ซ้ำ
-                                if new_u in df_u['username'].astype(str).values:
-                                    st.error("Username นี้มีอยู่ในระบบแล้ว")
-                                else:
+                            # ตรวจสอบชื่อซ้ำ
+                            if new_u in df_u['username'].astype(str).values:
+                                st.error(f"Username '{new_u}' มีในระบบแล้ว")
+                            else:
+                                try:
                                     ss.worksheet("users").append_row([new_u, new_p, new_r, new_n, new_lid])
-                                    st.success(f"เพิ่มคุณ {new_n} เรียบร้อย!")
-                                    time.sleep(1)
+                                    st.success(f"เพิ่ม {new_n} เรียบร้อย!")
+                                    time.sleep(1.5)
                                     st.rerun()
-                            except Exception as e:
-                                st.error(f"เกิดข้อผิดพลาด: {e}")
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
                         else:
-                            st.warning("กรุณากรอกข้อมูล Username, Password และ Nickname")
+                            st.warning("กรุณากรอก Username, Password และ Nickname")
 
+            # --- ส่วนที่ 3: ระบบควบคุมส่วนกลาง ---
             st.divider()
-            st.write("🚨 **ระบบควบคุมส่วนกลาง**")
+            st.write("🚨 **Danger Zone**")
             c_danger1, c_danger2 = st.columns(2)
+            
             with c_danger1:
                 if st.button("♻️ Clear System Cache", use_container_width=True):
                     st.cache_data.clear()
                     st.cache_resource.clear()
-                    st.success("Cache Cleared!")
+                    st.success("ล้างหน่วยความจำชั่วคราวแล้ว!")
+                    time.sleep(1)
                     st.rerun()
             
             with c_danger2:
-                del_sn = st.text_input("ระบุ SN ที่จะลบถาวร (ระวัง!)").strip()
-                if st.button("🗑️ Delete Record", type="secondary", use_container_width=True):
+                del_sn = st.text_input("ระบุ SN ที่จะลบถาวร").strip().upper()
+                if st.button("🗑️ ยืนยันการลบ Record", type="secondary", use_container_width=True):
                     if del_sn:
                         try:
                             cell = ws_main.find(del_sn)
                             ws_main.delete_rows(cell.row)
-                            st.error(f"ลบข้อมูล SN {del_sn} ออกจากระบบแล้ว")
-                            time.sleep(1)
+                            st.error(f"ลบ SN {del_sn} ออกจากฐานข้อมูลแล้ว")
+                            time.sleep(1.5)
                             st.rerun()
                         except:
-                            st.warning("ไม่พบ SN นี้ในระบบ")
+                            st.warning("ไม่พบหมายเลข SN นี้")
