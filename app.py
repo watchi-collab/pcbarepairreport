@@ -351,12 +351,12 @@ if role == "user":
                     display_images_with_link(row['user_image'], "รูปภาพที่แจ้งซ่อม")
 # --- ROLE: TECH (ปรับปรุงการดึงข้อมูลจาก Column Action และล้างค่า Column M) ---
 elif role == "tech":
-
+    # --- 1. Sidebar: ระบบส่งรายงานสรุปยอด ---
     with st.sidebar:
         st.markdown("---")
         st.subheader("📊 Reporting System")
         
-        # ตัวเลือกประเภทรายงาน
+        # ตัวเลือกประเภทรายงาน (Default ตาม app_mode ปัจจุบัน)
         report_type = st.selectbox(
             "เลือกส่วนงานที่ต้องการรายงาน:",
             ["PCBA", "Machine"],
@@ -365,9 +365,10 @@ elif role == "tech":
         
         if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
             with st.spinner(f"กำลังสรุปข้อมูล {report_type}..."):
-                # เรียกฟังก์ชันเดิมที่เราทำไว้ โดยส่งค่า report_type ที่เลือกเข้าไป
+                # เรียกฟังก์ชันสรุปยอดที่ซ่อนบรรทัดเลข 0 ไว้แล้ว
                 send_daily_summary(df_all, report_type)
-                
+
+    # --- 2. ส่วนแสดงผลหลัก: Technician Workspace ---
     st.header("🔧 Technician Workspace")
     sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข", key="tech_sn_input").strip()
     
@@ -387,74 +388,68 @@ elif role == "tech":
                     display_images_with_link(j.get('user_image', ''), "รูปภาพอาการเสีย")
 
                 with st.form("tech_update"):
-                    # 1. ดึงค่า wait_part_name ปัจจุบันมาโชว์ (ถ้ายังมีค้างอยู่ใน Column M)
+                    # ดึงค่า wait_part_name ปัจจุบัน (Column M)
                     current_wait_part = str(j.get('wait_part_name', "")).strip()
                     p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
                     
-                    # 2. ดึงข้อความจาก Action (Column K) มาเป็นค่าเริ่มต้น เพื่อให้พิมพ์ต่อได้เลย
-                    # ในรูปของคุณ Action มีค่า "[Waiting Part: K-A-000083 ]" อยู่แล้ว
-
-                    
-                    # ระบบสถานะ
+                    # ระบบสถานะอัตโนมัติ
                     stat_list = ["Complete", "Scrap", "Wait Part"]
                     default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
                     res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
                     
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
+                    
+                    # --- ย้าย Root Cause มาไว้ก่อนหน้า Action ---
                     case_th = st.text_input("Root Cause")
                     
+                    # ดึง Action เดิม (Column K) มาแสดงเพื่อให้พิมพ์รายละเอียดต่อได้
                     existing_action = str(j.get('action', "")).strip()
                     act_th = st.text_area("Action Taken", value=existing_action)
                     
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
-                        # เงื่อนไขการบันทึก
+                        # เงื่อนไขความครบถ้วนของข้อมูล
                         can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
                         
                         if can_save:
-                            with st.spinner("กำลังบันทึกและล้างสถานะพาร์ท..."):
+                            with st.spinner("กำลังบันทึกข้อมูล..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
                                 
-                                # หากมีการกรอกชื่อพาร์ทใหม่ และยังไม่มีใน Action ให้เพิ่มเข้าไป
+                                # จัดการข้อความ Waiting Part ใน Action
                                 if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
                                     act_en = f"[Waiting Part: {p_name_input}] " + act_en
 
                                 t_urls = upload_images(tech_imgs, "FIX", sn_scan)
                                 
-                                # --- หัวใจสำคัญ: บันทึกข้อมูลและลบ Column M ---
-                                # อัปเดต Column J: Root Cause, K: Action, L: Classification, M: wait_part_name (ส่ง "" ไปเพื่อลบ)
+                                # --- อัปเดต Google Sheets และล้าง Column M ---
                                 ws_main.update_acell(f'B{ridx}', res)
-                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]]) 
-                                
-                                # อัปเดต Tech Name และ Time (Column N, O)
+                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]]) # ส่ง "" ไปที่ Column M
                                 ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
                                 
                                 if t_urls: 
                                     ws_main.update_acell(f'Q{ridx}', t_urls)
                                 
-                            if res in ["Complete", "Scrap"]:
-                                try:
-                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
-                                    tech_msg += f"SN: {sn_scan}\n"
-                                    tech_msg += f"สถานะ: {res}\n"
-                                    tech_msg += f"Classification: {cls}\n"
-                                    tech_msg += f"สาเหตุ: {case_th}\n"
-                                    tech_msg += f"การแก้ไข: {act_th}\n"
-                                    tech_msg += f"ช่างผู้ดูแล: {nick}"
-                                    
-                                    send_line(tech_msg)
-                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
-                                except Exception as e:
-                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
+                                # แจ้งเตือน LINE รายเคส (เฉพาะเมื่อซ่อมเสร็จหรือ Scrap)
+                                if res in ["Complete", "Scrap"]:
+                                    try:
+                                        tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
+                                        tech_msg += f"SN: {sn_scan}\n"
+                                        tech_msg += f"สถานะ: {res}\n"
+                                        tech_msg += f"สาเหตุ: {case_th}\n"
+                                        tech_msg += f"การแก้ไข: {act_th}\n"
+                                        tech_msg += f"ช่าง: {nick}"
+                                        send_line(tech_msg)
+                                    except:
+                                        pass
 
-                            st.success("บันทึกสำเร็จ!")
-                            time.sleep(1.5)
-                            st.rerun()
-                        else:
-                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
+                            st.success("บันทึกสำเร็จ!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("กรุณากรอกข้อมูลให้ครบถ้วน (Root Cause และ Action Taken)")
             else:
                 st.warning(f"ไม่พบข้อมูล SN: {sn_scan}")
                 
