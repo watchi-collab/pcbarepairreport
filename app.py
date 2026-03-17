@@ -98,25 +98,47 @@ def upload_images(files, prefix, sn):
     return ",".join(urls)
 
 def send_line(msg, image_url=None):
-    token = st.secrets.get("line_channel_access_token")
-    group_id = st.secrets.get("line_group_id")
-    if not token or not group_id: return
+    # ดึงค่าจาก st.secrets (อย่าลืมไปตั้งค่าใน Streamlit Cloud)
+    token = st.secrets.get("line_channel_access_token") 
+    # ใช้ Group ID ที่คุณระบุมา
+    group_id = "C54883d9bd6b1293ff2bad0ba497a80d7" 
+    
+    if not token: 
+        st.error("❌ ไม่พบ Line Channel Access Token ใน Secrets")
+        return
     
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    headers = {
+        "Content-Type": "application/json", 
+        "Authorization": f"Bearer {token}"
+    }
     
+    # เตรียมข้อความหลัก
     messages = [{"type": "text", "text": msg}]
+    
+    # ถ้ามีรูปภาพแนบมา (รองรับการส่งรูปภาพ 1 รูปตามข้อกำหนดของ LINE API ต่อ 1 Bubble)
     if image_url:
-        first_img = image_url.split(',')[0]
-        messages.append({
-            "type": "image",
-            "originalContentUrl": first_img,
-            "previewImageUrl": first_img
-        })
+        first_img = image_url.split(',')[0].strip()
+        if first_img.startswith("http"):
+            messages.append({
+                "type": "image",
+                "originalContentUrl": first_img,
+                "previewImageUrl": first_img
+            })
         
-    payload = {"to": group_id, "messages": messages}
-    requests.post(url, headers=headers, json=payload)
-
+    payload = {
+        "to": group_id,
+        "messages": messages
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            print(f"LINE Error: {response.text}")
+        return response.status_code
+    except Exception as e:
+        print(f"Connection Error: {e}")
+        return None
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
         st.info(f"ไม่มี{caption_prefix}")
