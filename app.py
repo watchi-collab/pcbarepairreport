@@ -437,7 +437,7 @@ elif role == "tech":
                                 
                                 # แจ้งเตือน LINE
                                 line_msg = f"🔧 Update: {res}\nSN: {sn_scan}\nAction: {act_en}\nBy: {nick}"
-                                send_line(line_msg, image_url=t_urls if t_urls else j.get('user_image', ''))
+                                #send_line(line_msg, image_url=t_urls if t_urls else j.get('user_image', ''))
                                 
                                 st.success("บันทึกสำเร็จ และล้างรายชื่อพาร์ทออกจากระบบรอแล้ว")
                                 time.sleep(1)
