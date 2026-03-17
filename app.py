@@ -435,15 +435,26 @@ elif role == "tech":
                                 if t_urls: 
                                     ws_main.update_acell(f'Q{ridx}', t_urls)
                                 
-                                # แจ้งเตือน LINE
-                                line_msg = f"🔧 Update: {res}\nSN: {sn_scan}\nAction: {act_en}\nBy: {nick}"
-                                #send_line(line_msg, image_url=t_urls if t_urls else j.get('user_image', ''))
-                                
-                                st.success("บันทึกสำเร็จ และล้างรายชื่อพาร์ทออกจากระบบรอแล้ว")
-                                time.sleep(1)
-                                st.rerun()
-                        else:
-                            st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
+                            if res in ["Complete", "Scrap"]:
+                                try:
+                                    tech_msg = f"✅ งานซ่อมเสร็จสิ้น! ({app_mode})\n"
+                                    tech_msg += f"SN: {sn_scan}\n"
+                                    tech_msg += f"สถานะ: {res}\n"
+                                    tech_msg += f"Classification: {cls}\n"
+                                    tech_msg += f"สาเหตุ: {case_th}\n"
+                                    tech_msg += f"การแก้ไข: {act_th}\n"
+                                    tech_msg += f"ช่างผู้ดูแล: {nick}"
+                                    
+                                    send_line(tech_msg)
+                                    st.success("ส่งแจ้งเตือนเข้ากลุ่ม LINE แล้ว")
+                                except Exception as e:
+                                    st.warning(f"บันทึกสำเร็จ แต่แจ้งเตือน LINE ไม่สำเร็จ: {e}")
+
+                            st.success("บันทึกสำเร็จ!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("กรุณากรอก Root Cause และ Action Taken ก่อนบันทึก")
             else:
                 st.warning(f"ไม่พบข้อมูล SN: {sn_scan}")
                 
