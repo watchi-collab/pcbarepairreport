@@ -286,9 +286,24 @@ with st.sidebar:
                     st.success("Updated!"); time.sleep(1); st.rerun()
         else: st.warning("ไม่พบ SN")
     
+    # --- เพิ่มส่วนนี้: ปุ่มเช็ค ID (วางไว้ก่อนปุ่มออกจากระบบ) ---
     st.divider()
+    if st.button("🔍 เช็ค Line ID ของฉัน", use_container_width=True):
+        my_id = st.session_state.get("my_line_id", "")
+        if my_id and my_id.startswith("U"):
+            st.success("พบ Line ID ในระบบแล้ว")
+            st.code(my_id)
+            st.info("รายงานสรุปจะถูกส่งไปที่แชทส่วนตัวของ ID นี้")
+        else:
+            st.error("ยังไม่มี ID ในระบบ (หรือ ID ไม่ถูกต้อง)")
+            st.warning("โปรดแจ้ง Admin ให้แก้ไขช่อง line_user_id ใน Sheet 'users'")
+            st.write("ID ปัจจุบันของคุณคือ:", f"`{my_id}`")
+    
+    st.divider()
+    # ปุ่มเดิมของคุณ
     if st.button("🚪 ออกจากระบบ", use_container_width=True):
-        st.session_state.is_logged_in = False; st.rerun()
+        st.session_state.is_logged_in = False
+        st.rerun()
 
 # --- 6. INTERFACES BY ROLE (USER PORTAL - WITH SN VALIDATION) ---
 if role == "user":
