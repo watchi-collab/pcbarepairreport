@@ -97,11 +97,16 @@ def upload_images(files, prefix, sn):
         except: continue
     return ",".join(urls)
 
-def send_line(msg, image_url=None):
-    # ดึงค่าจาก st.secrets (อย่าลืมไปตั้งค่าใน Streamlit Cloud)
+def send_line(msg, image_url=None, to_summary=False):
+    # ดึงค่าจาก st.secrets
     token = st.secrets.get("line_channel_access_token") 
-    # ใช้ Group ID ที่คุณระบุมา
-    group_id = "C54883d9bd6b1293ff2bad0ba497a80d7" 
+    
+    # กำหนด Group ID ตามเงื่อนไข
+    GROUP_ID_REPAIR = "C54883d9bd6b1293ff2bad0ba497a80d7"  # กลุ่มแจ้งซ่อมเดิม
+    GROUP_ID_SUMMARY = "Ce5d4d803cd538c97b007d75cb406306c" # กลุ่มส่งรายงานใหม่
+    
+    # เลือกกลุ่มเป้าหมาย
+    target_id = GROUP_ID_SUMMARY if to_summary else GROUP_ID_REPAIR
     
     if not token: 
         st.error("❌ ไม่พบ Line Channel Access Token ใน Secrets")
@@ -116,7 +121,7 @@ def send_line(msg, image_url=None):
     # เตรียมข้อความหลัก
     messages = [{"type": "text", "text": msg}]
     
-    # ถ้ามีรูปภาพแนบมา (รองรับการส่งรูปภาพ 1 รูปตามข้อกำหนดของ LINE API ต่อ 1 Bubble)
+    # ถ้ามีรูปภาพแนบมา
     if image_url:
         first_img = image_url.split(',')[0].strip()
         if first_img.startswith("http"):
@@ -127,7 +132,7 @@ def send_line(msg, image_url=None):
             })
         
     payload = {
-        "to": group_id,
+        "to": target_id,
         "messages": messages
     }
     
@@ -139,6 +144,7 @@ def send_line(msg, image_url=None):
     except Exception as e:
         print(f"Connection Error: {e}")
         return None
+        
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
         st.info(f"ไม่มี{caption_prefix}")
@@ -231,9 +237,9 @@ def send_daily_summary(df, app_mode):
     msg += "--------------------------------\n"
     msg += f"รายงานโดย: {st.session_state.nickname}"
     
-    # 4. ส่งข้อมูล
-    send_line(msg)
-    st.success("ส่งรายงานเข้ากลุ่มเรียบร้อยแล้ว!")
+    # 4. ส่งข้อมูล (ระบุให้ส่งไปกลุ่มรายงาน)
+    send_line(msg, to_summary=True)
+    st.success("ส่งรายงานเข้ากลุ่มใหม่เรียบร้อยแล้ว!")
         # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
