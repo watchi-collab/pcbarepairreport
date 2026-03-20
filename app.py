@@ -473,7 +473,9 @@ elif role == "tech":
             
             with col1:
                 # เลือก Model PCBA
-                pcba_models = [""] + get_df("model_mat")['model_pcba'].tolist()
+                df_model_mat = get_df("model_mat")
+                # แก้ไขชื่อคอลัมน์ให้ตรงกับ Google Sheets (ใช้ชื่อ 'model')
+                pcba_models = [""] + df_model_mat['model'].dropna().unique().tolist()
                 selected_pcba_model = st.selectbox("เลือก Model PCBA (จาก Model Mat)", pcba_models)
                 
                 # SN ของบอร์ด PCBA
@@ -488,22 +490,27 @@ elif role == "tech":
     
             # ปุ่มส่งข้อมูล
             if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
+                # ตรวจสอบตัวแปร selected_pcba_model และค่าอื่นๆ
                 if selected_pcba_model and sn_pcba and pcba_failure:
                     with st.spinner("กำลังออกใบแจ้งซ่อม PCBA..."):
+                        
+                        # ค้นหา product_name จาก model_mat เพื่อบันทึกลง Column E
+                        prod_match = df_model_mat[df_model_mat['model'] == selected_pcba_model]
+                        p_name = prod_match.iloc[0]['product_name'] if not prod_match.empty else ""
+
                         # เตรียมข้อมูลสำหรับบันทึก (ให้ Category เป็น PCBA เสมอ)
                         new_pcba_job = [
-                            "PCBA",                             # A: Category
-                            "Pending",                          # B: status
-                            ref_data.get('work_order', ''),     # C: work_order (ใช้ WO เดียวกับเครื่องจักร)
-                            selected_pcba_model,                # D: model
-                            "",                                 # E: product_name
-                            sn_pcba,                            # F: serial_number
-                            stn_name,                           # G: station (เก็บค่า Station ต้นทาง)
-                            pcba_failure,                       # H: failure
-                            get_now(),                          # I: user_time (Timestamp)
-                            # ... เว้นคอลัมน์ที่เหลือ (J-O) ให้เป็นค่าว่างสำหรับ Tech มาเติม
-                            "", "", "", "", "", "",             
-                            ref_data.get('user_image', '')      # Q: user_image (ใช้รูปเดิมจากหน้างาน)
+                            "PCBA",                                 # A: Category
+                            "Pending",                              # B: status
+                            ref_data.get('work_order', ''),         # C: work_order
+                            selected_pcba_model,                    # D: model
+                            p_name,                                 # E: product_name (เพิ่มเพื่อให้ข้อมูลครบ)
+                            sn_pcba,                                # F: serial_number
+                            stn_name,                               # G: station
+                            pcba_failure,                           # H: failure
+                            get_now(),                              # I: user_time
+                            "", "", "", "", "", "",                 # J-O: เว้นว่างไว้
+                            ref_data.get('user_image', '')          # Q: user_image (ใช้รูปเดิมจากหน้างาน)
                         ]
                         
                         # บันทึกลง Google Sheets
@@ -512,6 +519,7 @@ elif role == "tech":
                         # ส่ง LINE แจ้งเตือน
                         msg = (f"📥 [New PCBA Repair]\n"
                                f"SN: {sn_pcba}\n"
+                               f"Model: {selected_pcba_model}\n"
                                f"From Station: {stn_name}\n"
                                f"Problem: {pcba_failure}\n"
                                f"Ref WO: {ref_data.get('work_order', 'N/A')}")
@@ -521,8 +529,7 @@ elif role == "tech":
                         time.sleep(1)
                         st.rerun()
                 else:
-                    st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
-
+                    st.error("กรุณากรอกข้อมูลให้ครบถ้วน (เลือก Model, SN และอาการเสีย)")
 
 # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
