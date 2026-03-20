@@ -365,7 +365,14 @@ if role == "user":
                         ws_main.append_row(new_row)
                         
                         # 4. ส่ง LINE
-                        line_msg = f"🚨 New Job! ({app_mode})\nSN: {sn}\nModel: {sel_m}\nProblem: {fail_en}\nBy: {nick}"
+                        line_msg = (
+                        f"🚨 New Job! ({app_mode})\n"
+                        f"SN: {sn}\n"
+                        f"Model: {sel_m}\n"
+                        f"Station: {stat}\n"  # <--- เพิ่มบรรทัดนี้
+                        f"Problem: {fail_en}\n"
+                        f"By: {nick}"
+                    )
                         send_line(line_msg, image_url=urls)
                         
                         # --- 5. บันทึกเสร็จสิ้น ค่อยทำการเคลียร์ค่าทั้งหมด ---
@@ -473,7 +480,7 @@ elif role == "tech":
                                 ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
                                 
                                 if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                            if res in ["Complete", "Scrap"]: send_line(f"✅ ซ่อมเสร็จ! ({app_mode})\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
+                            if res in ["Complete", "Scrap"]: send_line(f"✅ Complete! ({app_mode})\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
                             st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
             else: st.warning("ไม่พบข้อมูล")
                 
