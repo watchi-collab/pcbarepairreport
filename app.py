@@ -155,91 +155,97 @@ def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
         st.code(url)
 
 def send_daily_summary(df, app_mode):
+    import pytz
+    from datetime import datetime
+    
     tz = pytz.timezone('Asia/Bangkok')
     now = datetime.now(tz)
-    today_date = now.strftime("%Y-%m-%d") 
+    today_date = now.strftime("%Y-%m-%d")
     today_display = now.strftime("%d/%m/%Y")
-    
-    df_mode = df[df['category'] == app_mode].copy()
-    if df_mode.empty:
-        st.warning("ไม่มีข้อมูลสำหรับรายงาน")
-        return
+    nick = st.session_state.get('nickname', 'Unknown')
 
-    unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
-    msg = f"รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
-    msg += f"ส่วนงาน: {app_mode}\n"
-    msg += "--------------------------------\n"
-
-    # 1. เตรียมข้อมูลพื้นฐาน
-    pending_df = df_mode[df_mode['status'] == 'Pending']
-    wait_part_df = df_mode[df_mode['status'] == 'Wait Part']
-    done_today_df = df_mode[
-        (df_mode['status'].isin(['Complete', 'Scrap'])) & 
-        (df_mode['tech_time'].astype(str).str.contains(today_date))
-    ]
-    
-    # 2. รายงานแยกตาม Work Order
-    wo_list = pd.concat([pending_df, wait_part_df, done_today_df])['work_order'].unique()
-
-    if len(wo_list) == 0:
-        msg += f"ไม่มีงานค้างและไม่มีงานเสร็จในวันนี้ 🎉\n"
-    else:
-        for wo in sorted(wo_list):
-            if not wo: continue
-            wo_data = df_mode[df_mode['work_order'] == wo]
+    # 1. จัดการฝั่ง PCBA (เน้นสรุปภาพรวมทั้งหมด)
+    df_pcba = df[df['category'] == "PCBA"].copy()
+    if not df_pcba.empty:
+        msg_p = f"📋 รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
+        msg_p += f"ส่วนงาน: PCBA\n"
+        msg_p += "--------------------------------\n"
+        
+        # รายงานแยกตาม WO สำหรับ PCBA
+        wo_list = df_pcba['work_order'].unique()
+        for wo in wo_list:
+            wo_data = df_pcba[df_pcba['work_order'] == wo]
+            total_wo = len(wo_data)
+            p_done = len(wo_data[wo_data['status'].isin(['Complete', 'Scrap'])])
+            p_pending = len(wo_data[wo_data['status'] == 'Pending'])
+            p_wait = len(wo_data[wo_data['status'] == 'Wait Part'])
             
-            p_cnt = len(wo_data[wo_data['status'] == 'Pending'])
-            w_cnt = len(wo_data[wo_data['status'] == 'Wait Part'])
-            d_cnt = len(wo_data[(wo_data['status'].isin(['Complete', 'Scrap'])) & 
-                               (wo_data['tech_time'].astype(str).str.contains(today_date))])
-            
-            total_active = p_cnt + w_cnt + d_cnt
-            if total_active > 0:
-                msg += f"WO. {wo}\n"
-                msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_active} {unit}\n"
-                if p_cnt > 0:
-                    msg += f"  - อยู่ระหว่างวิเคราะห์ {p_cnt} {unit}\n"
-                if w_cnt > 0:
-                    msg += f"  - รอพาร์ท {w_cnt} {unit}\n"
-                if d_cnt > 0:
-                    msg += f"  - ซ่อมเสร็จ {d_cnt} {unit}\n"
-                msg += "\n"
+            msg_p += f"WO. {wo}\n"
+            msg_p += f"จำนวนบอร์ดที่เสียทั้งหมด {total_wo} บอร์ด\n"
+            if p_pending > 0: msg_p += f"  - อยู่ระหว่างวิเคราะห์ {p_pending} บอร์ด\n"
+            if p_wait > 0: msg_p += f"  - รอพาร์ท {p_wait} บอร์ด\n"
+            if p_done > 0: msg_p += f"  - ซ่อมเสร็จ {p_done} บอร์ด\n"
+            msg_p += "\n"
 
-    # 3. สรุปภาพรวมท้ายรายงาน
-    msg += "--------------------------------\n"
-    msg += f"สรุปภาพรวม {app_mode}\n"
-    
-    if app_mode == "Machine":
-        for stn in sorted(df_mode['station'].unique()):
-            stn_data = df_mode[df_mode['station'] == stn]
-            s_p = len(stn_data[stn_data['status'] == 'Pending'])
-            s_w = len(stn_data[stn_data['status'] == 'Wait Part'])
-            s_d = len(stn_data[(stn_data['status'].isin(['Complete', 'Scrap'])) & 
-                              (stn_data['tech_time'].astype(str).str.contains(today_date))])
-            
-            if (s_p + s_w + s_d) > 0:
-                msg += f"Station: {stn}\n"
-                parts = []
-                if s_p > 0: parts.append(f"วิเคราะห์ {s_p} {unit}")
-                if s_w > 0: parts.append(f"รอพาร์ท {s_w} {unit}")
-                if s_d > 0: parts.append(f"ซ่อมเสร็จ {s_d} {unit}")
-                msg += f"  - " + " | ".join(parts) + "\n"
-    else:
-        total_all = len(pending_df) + len(wait_part_df) + len(done_today_df)
-        msg += f"จำนวน{unit}ที่เสียทั้งหมด {total_all} {unit}\n"
-        if len(pending_df) > 0:
-            msg += f"  - อยู่ระหว่างวิเคราะห์ {len(pending_df)} {unit}\n"
-        if len(wait_part_df) > 0:
-            msg += f"  - รอพาร์ท {len(wait_part_df)} {unit}\n"
-        if len(done_today_df) > 0:
-            msg += f"  - ซ่อมเสร็จ {len(done_today_df)} {unit}\n"
+        # สรุปภาพรวม PCBA ท้ายข้อความ
+        all_p_done = len(df_pcba[df_pcba['status'].isin(['Complete', 'Scrap'])])
+        all_p_pending = len(df_pcba[df_pcba['status'] == 'Pending'])
+        all_p_wait = len(df_pcba[df_pcba['status'] == 'Wait Part'])
+        
+        msg_p += "--------------------------------\n"
+        msg_p += "📊 สรุปภาพรวม PCBA\n"
+        msg_p += f"จำนวนบอร์ดที่เสียทั้งหมด {len(df_pcba)} บอร์ด\n"
+        msg_p += f"  - อยู่ระหว่างวิเคราะห์ {all_p_pending} บอร์ด\n"
+        msg_p += f"  - รอพาร์ท {all_p_wait} บอร์ด\n"
+        msg_p += f"  - ซ่อมเสร็จ {all_p_done} บอร์ด\n"
+        msg_p += "--------------------------------\n"
+        msg_p += f"รายงานโดย: {nick}"
+        
+        send_line(msg_p, to_summary=True)
 
-    msg += "--------------------------------\n"
-    msg += f"รายงานโดย: {st.session_state.nickname}"
-    
-    # 4. ส่งข้อมูล (ระบุให้ส่งไปกลุ่มรายงาน)
-    send_line(msg, to_summary=True)
-    st.success("ส่งรายงานเข้ากลุ่มใหม่เรียบร้อยแล้ว!")
+    # 2. จัดการฝั่ง Machine (แยกตาม Station: Pack, PCS, String ฯลฯ)
+    df_mac = df[df['category'] == "Machine"].copy()
+    if not df_mac.empty:
+        stations = df_mac['station'].unique()
+        for stn in stations:
+            if not stn: continue
+            stn_data = df_mac[df_mac['station'] == stn]
+            
+            msg_m = f"📋 รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
+            msg_m += f"ส่วนงาน: {stn}\n"
+            msg_m += "--------------------------------\n"
+            
+            # รายงานแยกตาม WO ภายใน Station นั้นๆ
+            wo_list_m = stn_data['work_order'].unique()
+            for wo in wo_list_m:
+                wo_d = stn_data[stn_data['work_order'] == wo]
+                tw = len(wo_d)
+                wd = len(wo_d[wo_d['status'].isin(['Complete', 'Scrap'])])
+                wp = len(wo_d[wo_d['status'] == 'Pending'])
+                ww = len(wo_d[wo_d['status'] == 'Wait Part'])
+                
+                msg_m += f"WO. {wo}\n"
+                msg_m += f"จำนวนเครื่องที่เสีย {tw} เครื่อง\n"
+                if wp > 0: msg_m += f"  - อยู่ในระหว่างตรวจสอบ {wp} เครื่อง\n"
+                if ww > 0: msg_m += f"  - รอพาร์ท {ww} เครื่อง\n"
+                if wd > 0: msg_m += f"  - ซ่อมเสร็จ Ok {wd} เครื่อง\n"
+                msg_m += "\n"
+
+            # สรุปภาพรวมของ Station นั้นๆ
+            stn_done = len(stn_data[stn_data['status'].isin(['Complete', 'Scrap'])])
+            stn_pending = len(stn_data[stn_data['status'] == 'Pending'])
+            
+            msg_m += "--------------------------------\n"
+            msg_m += f"📊 สรุปภาพรวม {stn}\n"
+            msg_m += f"  - จำนวนเครื่องที่เสีย {len(stn_data)} เครื่อง\n"
+            msg_m += f"  - อยู่ในระหว่างตรวจสอบ {stn_pending} เครื่อง\n"
+            msg_m += f"  - ซ่อมเสร็จ Ok {stn_done} เครื่อง\n"
+            msg_m += "--------------------------------\n"
+            msg_m += f"รายงานโดย: {nick}"
+            
+            send_line(msg_m, to_summary=True)
+
+    st.success("📢 ส่งรายงานแยกตาม WO และ Station เรียบร้อยแล้ว!")
         # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
@@ -300,7 +306,7 @@ with st.sidebar:
         st.session_state.is_logged_in = False
         st.rerun()
 
-# --- 6. INTERFACES BY ROLE (USER PORTAL - WITH SN VALIDATION) ---
+# --- 6. INTERFACES BY ROLE (USER PORTAL) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     
@@ -313,14 +319,13 @@ if role == "user":
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
         df_st = get_df("station_dropdowns")
         
-        with st.form("req_form", clear_on_submit=False): # เปลี่ยนเป็น False เพื่อควบคุมการเคลียร์เอง
+        with st.form("req_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
             
             sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
             
-            # รับค่า SN
             sn_input = c1.text_input("Serial Number", key="sn_field").strip()
             
             wo = c2.text_input("Work Order").strip().upper()
@@ -332,146 +337,160 @@ if role == "user":
                                      key=f"user_upload_{st.session_state.uploader_key}")
             
             if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
-                # --- ตรวจสอบ SN ว่าเป็นภาษาอังกฤษ/ตัวเลข เท่านั้นหรือไม่ ---
-                # หากมีภาษาไทย หรืออักขระพิเศษ ระบบจะเด้ง Error และไม่เคลียร์ค่า
                 if not re.match(r'^[a-zA-Z0-9]+$', sn_input):
-                    st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง: '{sn_input}' (ต้องเป็นภาษาอังกฤษและตัวเลขเท่านั้น)")
+                    st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง: '{sn_input}'")
                     st.warning("กรุณาเปลี่ยนภาษาคีย์บอร์ดแล้วแสกนใหม่อีกครั้ง")
                 
                 elif sel_m and sn_input and wo and stat:
                     with st.spinner("กำลังบันทึกข้อมูล..."):
-                        # ทำความสะอาด SN อีกรอบ
                         sn = validate_sn(sn_input)
-                        
-                        # 1. แปลภาษา
                         fail_en = translate_to_en(fail_th)
-                        
-                        # 2. อัปโหลดรูป
                         urls = upload_images(u_imgs, "REQ", sn)
                         
-                        # 3. บันทึก Sheets
+                        # 1. บันทึกข้อมูลลง Google Sheets
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
                         
-                        # 4. ส่ง LINE
+                        # 2. สร้างข้อความแจ้งเตือน LINE (เพิ่ม Station และ Emoji เพื่อความชัดเจน)
                         line_msg = (
-                        f"🚨 New Job! ({app_mode})\n"
-                        f"SN: {sn}\n"
-                        f"Model: {sel_m}\n"
-                        f"Station: {stat}\n"  # <--- เพิ่มบรรทัดนี้
-                        f"Problem: {fail_en}\n"
-                        f"By: {nick}"
-                    )
+                            f"🚨 *New Repair Job!* ({app_mode})\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"📍 **Station:** {stat}\n"
+                            f"🆔 **SN:** {sn}\n"
+                            f"📦 **Model:** {sel_m}\n"
+                            f"📝 **Problem:** {fail_en}\n"
+                            f"👤 **By:** {nick}"
+                        )
+                        
+                        # 3. ส่ง LINE แจ้งเตือน (Default ส่งกลุ่มแจ้งซ่อมเดิม)
                         send_line(line_msg, image_url=urls)
                         
-                        # --- 5. บันทึกเสร็จสิ้น ค่อยทำการเคลียร์ค่าทั้งหมด ---
+                        # 4. เคลียร์สถานะ
                         st.session_state.uploader_key += 1 
-                        st.success("บันทึกสำเร็จ!")
-                        time.sleep(1)
-                        st.rerun() # เคลียร์หน้าจอทั้งหมดและ Focus กลับไปที่ SN
+                        st.success("✅ บันทึกและแจ้งเตือนกลุ่ม LINE เรียบร้อย!")
+                        time.sleep(1.5)
+                        st.rerun()
                 else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบถ้วน")
-    with t2:
-        search_q = st.text_input("🔍 ค้นหา SN หรือ Model (10 รายการล่าสุด)").strip().upper()
-        my_jobs = df_all[df_all['category'] == app_mode]
-        
-        if search_q:
-            my_jobs = my_jobs[(my_jobs['serial_number'].str.contains(search_q)) | (my_jobs['model'].str.contains(search_q))]
-        
-        # แสดงรายการล่าสุดขึ้นก่อน (Reverse Order)
-        for idx, row in my_jobs.tail(10).iloc[::-1].iterrows():
-            with st.expander(f"📌 {row['status']} | {row['serial_number']} ({row['model']})"):
-                st.write(f"**Station:** {row['station']}")
-                st.write(f"**Problem (EN):** {row['failure']}")
-                st.write(f"**Time:** {row['user_time']}")
-                
-                # แสดงรูปภาพที่เคยส่งไว้ (ถ้ามี)
-                if row.get('user_image'):
-                    display_images_with_link(row['user_image'], "รูปภาพที่แจ้งซ่อม")
-# --- ROLE: TECH (ปรับปรุงการดึงข้อมูลจาก Column Action และล้างค่า Column M) ---
+                    st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
+                    
+# --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
 elif role == "tech":
-    # --- 1. Sidebar: ระบบส่งรายงานสรุปยอด ---
     with st.sidebar:
         st.markdown("---")
         st.subheader("📊 Reporting System")
-        
-        # ตัวเลือกประเภทรายงาน (Default ตาม app_mode ปัจจุบัน)
-        report_type = st.selectbox(
-            "เลือกส่วนงานที่ต้องการรายงาน:",
-            ["PCBA", "Machine"],
-            index=0 if app_mode == "PCBA" else 1
-        )
-        
+        report_type = st.selectbox("เลือกส่วนงานที่ต้องการรายงาน:", ["PCBA", "Machine"], index=0 if app_mode == "PCBA" else 1)
         if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
-            with st.spinner(f"กำลังสรุปข้อมูล {report_type}..."):
-                # เรียกฟังก์ชันสรุปยอดที่ซ่อนบรรทัดเลข 0 ไว้แล้ว
-                send_daily_summary(df_all, report_type)
+            send_daily_summary(df_all, report_type)
 
-    # --- 2. ส่วนแสดงผลหลัก: Technician Workspace ---
-    st.header("🔧 Technician Workspace")
-    sn_scan = st.text_input("🔍 Scan SN เพื่อวิเคราะห์/แก้ไข", key="tech_sn_input").strip()
+    st.header("🔧 Technician Workspace (Hybrid Mode)")
     
-    if sn_scan:
-        if not re.match(r'^[a-zA-Z0-9]+$', sn_scan):
-            st.error("❌ รูปแบบ SN ไม่ถูกต้อง (ภาษาอังกฤษและตัวเลขเท่านั้น)")
-        else:
-            job = df_all[(df_all['serial_number'] == sn_scan) & (df_all['category'] == app_mode)]
+    t_search, t_new_pcba = st.tabs(["🔍 วิเคราะห์/แก้ไขงานซ่อม", "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)"])
+
+    with t_search:
+        sn_scan = st.text_input("🔍 Scan SN (ได้ทั้ง PCBA & Machine)", key="tech_sn_input").strip()
+        if sn_scan:
+            sn_clean = validate_sn(sn_scan)
+            # ค้นหาข้อมูลจากทุก Category เพื่อให้ Tech จัดการได้หมด
+            job = df_all[df_all['serial_number'] == sn_clean]
+            
             if not job.empty:
                 j = job.iloc[-1]
                 ridx = job.index[-1] + 2 
+                st.info(f"📁 Category: {j['category']} | 📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
                 
-                # แสดง Info เบื้องต้น
-                st.info(f"📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
+                # เก็บรูปภาพเดิมไว้เผื่อส่งต่อให้ Job PCBA
+                existing_user_img = j.get('user_image', '')
                 
-                with st.expander("🖼️ ดูรูปภาพจาก User (คลิกเพื่อเปิดดู)"):
-                    display_images_with_link(j.get('user_image', ''), "รูปภาพอาการเสีย")
+                with st.expander("🖼️ ดูรูปภาพจาก User"):
+                    display_images_with_link(existing_user_img, "รูปภาพอาการเสีย")
 
                 with st.form("tech_update"):
-                    # ดึงค่า wait_part_name ปัจจุบัน (Column M)
                     current_wait_part = str(j.get('wait_part_name', "")).strip()
                     p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
                     
-                    # ระบบสถานะอัตโนมัติ
                     stat_list = ["Complete", "Scrap", "Wait Part"]
                     default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
                     res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
                     
                     cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
                     cls = st.selectbox("Classification", cls_list)
-                    
-                    # --- ย้าย Root Cause มาไว้ก่อนหน้า Action ---
                     case_th = st.text_input("Root Cause")
-                    
-                    # ดึง Action เดิม (Column K) มาแสดงเพื่อให้พิมพ์รายละเอียดต่อได้
                     existing_action = str(j.get('action', "")).strip()
                     act_th = st.text_area("Action Taken", value=existing_action)
-                    
                     tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
                     
                     if st.form_submit_button("บันทึกข้อมูล"):
-                        # เงื่อนไขความครบถ้วนของข้อมูล
                         can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
-                        
                         if can_save:
-                            with st.spinner("กำลังบันทึกข้อมูล..."):
+                            with st.spinner("กำลังบันทึก..."):
                                 case_en = translate_to_en(case_th)
                                 act_en = translate_to_en(act_th)
-                                
-                                # จัดการข้อความ Waiting Part ใน Action
                                 if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
                                     act_en = f"[Waiting Part: {p_name_input}] " + act_en
-
-                                t_urls = upload_images(tech_imgs, "FIX", sn_scan)
+                                t_urls = upload_images(tech_imgs, "FIX", sn_clean)
                                 
-                                # --- อัปเดต Google Sheets และล้าง Column M ---
                                 ws_main.update_acell(f'B{ridx}', res)
-                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]]) # ส่ง "" ไปที่ Column M
+                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]])
                                 ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
-                                
                                 if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                            if res in ["Complete", "Scrap"]: send_line(f"✅ Complete! ({app_mode})\nSN: {sn_scan}\nStatus: {res}\nBy: {nick}")
-                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-            else: st.warning("ไม่พบข้อมูล")
+                                
+                                if res in ["Complete", "Scrap"]: 
+                                    send_line(f"✅ Job Closed! ({j['category']})\nSN: {sn_clean}\nStatus: {res}\nBy: {nick}")
+                                
+                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+            else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
+
+    with t_new_pcba:
+        st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
+        df_pcba_m = get_df("model_mat")
+        
+        # ค้นหา Job Machine ล่าสุดเพื่อดึงข้อมูลมา Link กันอัตโนมัติ
+        ref_sn = st.text_input("แสกน SN เครื่องจักรที่พบปัญหาบอร์ด (เพื่อดึงรูป/Station)").strip().upper()
+        ref_data = df_all[df_all['serial_number'] == ref_sn].iloc[-1] if ref_sn in df_all['serial_number'].values else None
+
+        with st.form("tech_new_pcba_form"):
+            col1, col2 = st.columns(2)
+            pcba_model = col1.selectbox("เลือก Model PCBA (จาก Model Mat)", [""] + df_pcba_m['model'].tolist())
+            pcba_sn = col1.text_input("แสกน SN ของบอร์ด PCBA").strip()
+            
+            # ถ้ามีข้อมูลอ้างอิงจากเครื่องจักร ให้ดึง Station มาใส่ให้เลย
+            default_st = ref_data['station'] if ref_data is not None else ""
+            pcba_station = col2.text_input("Station/Machine Name", value=default_st)
+            pcba_fail = col2.text_area("ระบุอาการเสียของบอร์ด")
+            
+            # ตัวเลือกดึงรูปภาพเดิม
+            use_old_img = st.checkbox("🔗 ดึงรูปภาพจาก Job เครื่องจักรเดิมแนบไปด้วย", value=True) if ref_data is not None and ref_data.get('user_image') else False
+
+            if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
+                if pcba_model and pcba_sn:
+                    with st.spinner("กำลังเชื่อมโยงข้อมูลและเปิด Job..."):
+                        p_sn = validate_sn(pcba_sn)
+                        p_fail_en = translate_to_en(pcba_fail)
+                        p_name = df_pcba_m[df_pcba_m['model']==pcba_model]['product_name'].values[0] if pcba_model else ""
+                        
+                        # จัดการเรื่องรูปภาพ (ใช้รูปเดิมหรือเว้นว่าง)
+                        final_urls = ref_data.get('user_image', '') if use_old_img else ""
+                        
+                        # บันทึกเข้าคิวซ่อมบอร์ด (Category = PCBA)
+                        new_pcba_row = ["PCBA", "Pending", f"LINKED:{ref_sn}", pcba_model, p_name, p_sn, pcba_station, p_fail_en, get_now(), "", "", "", "", "", "", final_urls]
+                        ws_main.append_row(new_pcba_row)
+                        
+                        # แจ้งเตือน LINE (กลุ่มแจ้งซ่อม)
+                        line_msg = (
+                            f"📦 *Tech Request: PCBA Repair*\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"🆔 **PCBA SN:** {p_sn}\n"
+                            f"📦 **Model:** {pcba_model}\n"
+                            f"📍 **From:** {pcba_station} (SN: {ref_sn})\n"
+                            f"📝 **Prob:** {p_fail_en}\n"
+                            f"👤 **Requester:** {nick}"
+                        )
+                        send_line(line_msg, image_url=final_urls)
+                        
+                        st.success(f"เปิด Job ซ่อมบอร์ด {p_sn} เรียบร้อย!")
+                        time.sleep(1.5); st.rerun()
+                else:
+                    st.error("กรุณากรอก Model และ SN ของบอร์ดที่ต้องการส่งซ่อม")
                 
 # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
