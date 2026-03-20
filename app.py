@@ -165,12 +165,10 @@ def send_daily_summary(df, app_mode):
     today_display = now.strftime("%d/%m/%Y")
     nick = st.session_state.get('nickname', 'Unknown')
 
-    # เตรียมข้อมูลวันที่เพื่อใช้กรอง
+    # 1. เตรียมข้อมูลวันที่
     df['date_only'] = pd.to_datetime(df['timestamp']).dt.strftime('%Y-%m-%d')
     
-    # --- LOGIC การกรองข้อมูล ---
-    # 1. งานที่เกิดขึ้น "เฉพาะวันนี้" (ทุกสถานะ)
-    # 2. งานที่ "ยังไม่เสร็จ" (Pending/Wait Part) ทั้งหมดในระบบ (ย้อนหลังจนถึงปัจจุบัน)
+    # 2. กรองข้อมูล: งานวันนี้ทั้งหมด + งานที่ยังซ่อมไม่เสร็จ (Pending/Wait Part) จากอดีต
     condition = (df['date_only'] == today_str) | (df['status'].isin(['Pending', 'Wait Part']))
     df_report = df[condition].copy()
 
@@ -178,61 +176,67 @@ def send_daily_summary(df, app_mode):
         st.warning(f"📅 ไม่มีรายการงานของวันนี้และไม่มีงานค้างสะสม")
         return
 
-    # ฟังก์ชันช่วยสร้างเนื้อหาตามหมวดหมู่
-    def build_section_msg(df_sec, category_name, unit_text):
+    # ฟังก์ชันสร้างเนื้อหาข้อความตามรูปแบบที่คุณต้องการ
+    def build_report_format(df_sec, section_name, unit_text):
         if df_sec.empty: return None
         
-        msg = f"📋 รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
-        msg += f"ส่วนงาน: {category_name}\n"
+        msg = f"รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
+        msg += f"ส่วนงาน: {section_name}\n"
         msg += "--------------------------------\n"
         
-        # วนลูปตาม WO ที่ปรากฏในข้อมูลที่กรองมา
         wo_list = df_sec['work_order'].unique()
         for wo in wo_list:
+            if not wo: continue
             wo_data = df_sec[df_sec['work_order'] == wo]
             
-            # นับจำนวน
+            # นับจำนวนตามสถานะ
+            total_wo = len(wo_data)
             p_pending = len(wo_data[wo_data['status'] == 'Pending'])
             p_wait = len(wo_data[wo_data['status'] == 'Wait Part'])
-            # ซ่อมเสร็จ (เฉพาะของวันนี้)
-            p_done_today = len(wo_data[(wo_data['status'].isin(['Complete', 'Scrap'])) & (wo_data['date_only'] == today_str)])
-            
-            total_in_wo = p_pending + p_wait + p_done_today
-            if total_in_wo == 0: continue # ถ้า WO นี้ไม่มีงานค้างและไม่มีงานเสร็จวันนี้ ให้ข้ามไป
+            p_done = len(wo_data[wo_data['status'].isin(['Complete', 'Scrap'])])
             
             msg += f"WO. {wo}\n"
-            msg += f"จำนวน{unit_text}ที่เกี่ยวข้อง {total_in_wo} {unit_text}\n"
+            msg += f"จำนวน{unit_text}ที่เสียทั้งหมด {total_wo} {unit_text}\n"
             if p_pending > 0: msg += f"  - อยู่ระหว่างวิเคราะห์ {p_pending} {unit_text}\n"
-            if p_wait > 0: msg_p += f"  - รอพาร์ท {p_wait} {unit_text}\n"
-            if p_done_today > 0: msg += f"  - ซ่อมเสร็จวันนี้ {p_done_today} {unit_text}\n"
+            if p_wait > 0: msg += f"  - รอพาร์ท {p_wait} {unit_text}\n"
+            if p_done > 0: msg += f"  - ซ่อมเสร็จ {p_done} {unit_text}\n"
             msg += "\n"
 
-        # ส่วนสรุปภาพรวมท้ายข้อความ
-        total_p = len(df_sec[df_sec['status'] == 'Pending'])
-        total_w = len(df_sec[df_sec['status'] == 'Wait Part'])
-        total_d = len(df_sec[(df_sec['status'].isin(['Complete', 'Scrap'])) & (df_sec['date_only'] == today_str)])
+        # ส่วนสรุปภาพรวมท้ายส่วนงาน
+        total_all = len(df_sec)
+        total_pending = len(df_sec[df_sec['status'] == 'Pending'])
+        total_wait = len(df_sec[df_sec['status'] == 'Wait Part'])
+        total_done = len(df_sec[df_sec['status'].isin(['Complete', 'Scrap'])])
         
         msg += "--------------------------------\n"
-        msg += f"📊 สรุปภาพรวม {category_name}\n"
-        msg += f"  - งานค้างวิเคราะห์สะสม: {total_p} {unit_text}\n"
-        msg += f"  - งานค้างรอพาร์ทสะสม: {total_w} {unit_text}\n"
-        msg += f"  - ซ่อมเสร็จ Ok วันนี้: {total_d} {unit_text}\n"
-        msg += "--------------------------------\n"
-        msg += f"รายงานโดย: {nick}"
+        msg += f"สรุปภาพรวม {section_name}\n"
+        msg += f"จำนวน{unit_text}ที่เสียทั้งหมด {total_all} {unit_text}\n"
+        if total_pending > 0: msg += f"  - อยู่ระหว่างวิเคราะห์ {total_pending} {unit_text}\n"
+        if total_wait > 0: msg += f"  - รอพาร์ท {total_wait} {unit_text}\n"
+        msg += f"  - ซ่อมเสร็จ Ok {total_done} {unit_text}\n"
+        if section_name == "Srting": # เพิ่มบรรทัดพิเศษตามตัวอย่าง
+            msg += f"งานเสียเหลือ {total_pending + total_wait} {unit_text}\n"
+            
+        msg += "\nรายงานโดย: {nick}"
         return msg
 
-    # --- ส่งรายงาน PCBA ---
-    pcba_msg = build_section_msg(df_report[df_report['category'] == "PCBA"], "PCBA", "บอร์ด")
+    # --- 3. แยกส่งตามส่วนงาน ---
+
+    # ส่งรายงาน PCBA
+    pcba_msg = build_report_format(df_report[df_report['category'] == "PCBA"], "PCBA", "บอร์ด")
     if pcba_msg: send_line(pcba_msg, to_summary=True)
 
-    # --- ส่งรายงาน Machine แยกตาม Station ---
-    df_mac_all = df_report[df_report['category'] == "Machine"]
-    for stn in df_mac_all['station'].unique():
+    # ส่งรายงาน Machine แยกตามราย Station (Pack, PCS, Srting, ฯลฯ)
+    df_mac = df_report[df_report['category'] == "Machine"]
+    stations = df_mac['station'].unique()
+    for stn in stations:
         if not stn: continue
-        stn_msg = build_section_msg(df_mac_all[df_mac_all['station'] == stn], stn, "เครื่อง")
+        stn_msg = build_report_format(df_mac[df_mac['station'] == stn], stn, "เครื่อง")
         if stn_msg: send_line(stn_msg, to_summary=True)
 
-    st.success("📢 ส่งรายงานสรุปงานวันนี้ + งานค้างสะสมเรียบร้อย!")
+    st.success("📢 ส่งรายงานรูปแบบ WO และสรุปภาพรวมเรียบร้อย!")
+
+
         # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
