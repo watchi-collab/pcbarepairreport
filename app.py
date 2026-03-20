@@ -443,56 +443,83 @@ elif role == "tech":
             else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
 
     with t_new_pcba:
-        st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
-        df_pcba_m = get_df("model_mat")
+    st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
+    
+    # 1. สแกน SN เครื่องจักรเพื่อดึงข้อมูลเดิม (WO, Station, Model)
+    sn_machine_ref = st.text_input("สแกน SN เครื่องจักรที่พบปัญหาบอร์ด (เพื่อดึงรูป/Station/WO)", key="sn_ref")
+    
+    ref_data = {}
+    if sn_machine_ref:
+        sn_m_clean = validate_sn(sn_machine_ref)
+        # ค้นหาข้อมูลล่าสุดของเครื่องจักรเครื่องนี้
+        machine_job = df_all[df_all['serial_number'] == sn_m_clean]
+        if not machine_job.empty:
+            m_last = machine_job.iloc[-1]
+            ref_data = {
+                "work_order": m_last.get('work_order', ''),
+                "station": m_last.get('station', ''),
+                "model_machine": m_last.get('model', ''),
+                "user_image": m_last.get('user_image', '')
+            }
+            st.success(f"🔗 พบข้อมูลเชื่อมโยง: WO {ref_data['work_order']} | Station: {ref_data['station']}")
+        else:
+            st.warning("⚠️ ไม่พบข้อมูลเครื่องจักรเครื่องนี้ในระบบ (คุณต้องกรอกข้อมูลเอง)")
+
+    # --- ฟอร์มแจ้งซ่อม PCBA ---
+    with st.form("new_pcba_from_machine"):
+        col1, col2 = st.columns(2)
         
-        # ค้นหา Job Machine ล่าสุดเพื่อดึงข้อมูลมา Link กันอัตโนมัติ
-        ref_sn = st.text_input("แสกน SN เครื่องจักรที่พบปัญหาบอร์ด (เพื่อดึงรูป/Station)").strip().upper()
-        ref_data = df_all[df_all['serial_number'] == ref_sn].iloc[-1] if ref_sn in df_all['serial_number'].values else None
-
-        with st.form("tech_new_pcba_form"):
-            col1, col2 = st.columns(2)
-            pcba_model = col1.selectbox("เลือก Model PCBA (จาก Model Mat)", [""] + df_pcba_m['model'].tolist())
-            pcba_sn = col1.text_input("แสกน SN ของบอร์ด PCBA").strip()
+        with col1:
+            # เลือก Model PCBA
+            pcba_models = [""] + get_df("model_mat")['model_pcba'].tolist()
+            selected_pcba_model = st.selectbox("เลือก Model PCBA (จาก Model Mat)", pcba_models)
             
-            # ถ้ามีข้อมูลอ้างอิงจากเครื่องจักร ให้ดึง Station มาใส่ให้เลย
-            default_st = ref_data['station'] if ref_data is not None else ""
-            pcba_station = col2.text_input("Station/Machine Name", value=default_st)
-            pcba_fail = col2.text_area("ระบุอาการเสียของบอร์ด")
+            # SN ของบอร์ด PCBA
+            sn_pcba = st.text_input("สแกน SN ของบอร์ด PCBA").strip()
             
-            # ตัวเลือกดึงรูปภาพเดิม
-            use_old_img = st.checkbox("🔗 ดึงรูปภาพจาก Job เครื่องจักรเดิมแนบไปด้วย", value=True) if ref_data is not None and ref_data.get('user_image') else False
+        with col2:
+            # ดึง Station มาจาก Machine อัตโนมัติ (แต่ยอมให้แก้ไขได้)
+            stn_name = st.text_input("Station/Machine Name", value=ref_data.get('station', ''))
+            
+            # อาการเสีย
+            pcba_failure = st.text_area("ระบุอาการเสียของบอร์ด")
 
-            if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
-                if pcba_model and pcba_sn:
-                    with st.spinner("กำลังเชื่อมโยงข้อมูลและเปิด Job..."):
-                        p_sn = validate_sn(pcba_sn)
-                        p_fail_en = translate_to_en(pcba_fail)
-                        p_name = df_pcba_m[df_pcba_m['model']==pcba_model]['product_name'].values[0] if pcba_model else ""
-                        
-                        # จัดการเรื่องรูปภาพ (ใช้รูปเดิมหรือเว้นว่าง)
-                        final_urls = ref_data.get('user_image', '') if use_old_img else ""
-                        
-                        # บันทึกเข้าคิวซ่อมบอร์ด (Category = PCBA)
-                        new_pcba_row = ["PCBA", "Pending", f"LINKED:{ref_sn}", pcba_model, p_name, p_sn, pcba_station, p_fail_en, get_now(), "", "", "", "", "", "", final_urls]
-                        ws_main.append_row(new_pcba_row)
-                        
-                        # แจ้งเตือน LINE (กลุ่มแจ้งซ่อม)
-                        line_msg = (
-                            f"📦 *Tech Request: PCBA Repair*\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"🆔 **PCBA SN:** {p_sn}\n"
-                            f"📦 **Model:** {pcba_model}\n"
-                            f"📍 **From:** {pcba_station} (SN: {ref_sn})\n"
-                            f"📝 **Prob:** {p_fail_en}\n"
-                            f"👤 **Requester:** {nick}"
-                        )
-                        send_line(line_msg, image_url=final_urls)
-                        
-                        st.success(f"เปิด Job ซ่อมบอร์ด {p_sn} เรียบร้อย!")
-                        time.sleep(1.5); st.rerun()
-                else:
-                    st.error("กรุณากรอก Model และ SN ของบอร์ดที่ต้องการส่งซ่อม")
+        # ปุ่มส่งข้อมูล
+        if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
+            if selected_pcba_model and sn_pcba and pcba_failure:
+                with st.spinner("กำลังออกใบแจ้งซ่อม PCBA..."):
+                    # เตรียมข้อมูลสำหรับบันทึก (ให้ Category เป็น PCBA เสมอ)
+                    new_pcba_job = [
+                        "PCBA",                             # A: Category
+                        "Pending",                          # B: status
+                        ref_data.get('work_order', ''),     # C: work_order (ใช้ WO เดียวกับเครื่องจักร)
+                        selected_pcba_model,                # D: model
+                        "",                                 # E: product_name
+                        sn_pcba,                            # F: serial_number
+                        stn_name,                           # G: station (เก็บค่า Station ต้นทาง)
+                        pcba_failure,                       # H: failure
+                        get_now(),                          # I: user_time (Timestamp)
+                        # ... เว้นคอลัมน์ที่เหลือ (J-O) ให้เป็นค่าว่างสำหรับ Tech มาเติม
+                        "", "", "", "", "", "",             
+                        ref_data.get('user_image', '')      # Q: user_image (ใช้รูปเดิมจากหน้างาน)
+                    ]
+                    
+                    # บันทึกลง Google Sheets
+                    ws_main.append_row(new_pcba_job)
+                    
+                    # ส่ง LINE แจ้งเตือน
+                    msg = (f"📥 [New PCBA Repair]\n"
+                           f"SN: {sn_pcba}\n"
+                           f"From Station: {stn_name}\n"
+                           f"Problem: {pcba_failure}\n"
+                           f"Ref WO: {ref_data.get('work_order', 'N/A')}")
+                    send_line(msg)
+                    
+                    st.success("ส่งข้อมูลสำเร็จ!")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
                 
 # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
