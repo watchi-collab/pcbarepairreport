@@ -442,71 +442,7 @@ elif role == "tech":
                                 st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
             else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
 
-    elif role == "tech":
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("📊 Reporting System")
-        report_type = st.selectbox("เลือกส่วนงานที่ต้องการรายงาน:", ["PCBA", "Machine"], index=0 if app_mode == "PCBA" else 1)
-        if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
-            send_daily_summary(df_all, report_type)
 
-    st.header("🔧 Technician Workspace (Hybrid Mode)")
-    
-    t_search, t_new_pcba = st.tabs(["🔍 วิเคราะห์/แก้ไขงานซ่อม", "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)"])
-
-    with t_search:
-        sn_scan = st.text_input("🔍 Scan SN (ได้ทั้ง PCBA & Machine)", key="tech_sn_input").strip()
-        if sn_scan:
-            sn_clean = validate_sn(sn_scan)
-            # ค้นหาข้อมูลจากทุก Category เพื่อให้ Tech จัดการได้หมด
-            job = df_all[df_all['serial_number'] == sn_clean]
-            
-            if not job.empty:
-                j = job.iloc[-1]
-                ridx = job.index[-1] + 2 
-                st.info(f"📁 Category: {j['category']} | 📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
-                
-                # เก็บรูปภาพเดิมไว้เผื่อส่งต่อให้ Job PCBA
-                existing_user_img = j.get('user_image', '')
-                
-                with st.expander("🖼️ ดูรูปภาพจาก User"):
-                    display_images_with_link(existing_user_img, "รูปภาพอาการเสีย")
-
-                with st.form("tech_update"):
-                    current_wait_part = str(j.get('wait_part_name', "")).strip()
-                    p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
-                    
-                    stat_list = ["Complete", "Scrap", "Wait Part"]
-                    default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
-                    res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
-                    
-                    cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
-                    cls = st.selectbox("Classification", cls_list)
-                    case_th = st.text_input("Root Cause")
-                    existing_action = str(j.get('action', "")).strip()
-                    act_th = st.text_area("Action Taken", value=existing_action)
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
-                    
-                    if st.form_submit_button("บันทึกข้อมูล"):
-                        can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
-                        if can_save:
-                            with st.spinner("กำลังบันทึก..."):
-                                case_en = translate_to_en(case_th)
-                                act_en = translate_to_en(act_th)
-                                if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
-                                    act_en = f"[Waiting Part: {p_name_input}] " + act_en
-                                t_urls = upload_images(tech_imgs, "FIX", sn_clean)
-                                
-                                ws_main.update_acell(f'B{ridx}', res)
-                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]])
-                                ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
-                                if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                                
-                                if res in ["Complete", "Scrap"]: 
-                                    send_line(f"✅ Job Closed! ({j['category']})\nSN: {sn_clean}\nStatus: {res}\nBy: {nick}")
-                                
-                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-            else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
 
     with t_new_pcba:
         st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
