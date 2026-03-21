@@ -308,14 +308,14 @@ with st.sidebar:
         st.session_state.is_logged_in = False
         st.rerun()
 
-# --- 6. INTERFACES BY ROLE (USER PORTAL) ---
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
 
-    t1, t2 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม"])
+    # เพิ่ม Tab "ลงทะเบียน Model" เข้าไปรวมกับของเดิม
+    t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม", "📋 ลงทะเบียน Model"])
     
     with t1:
         df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
@@ -324,7 +324,7 @@ if role == "user":
         with st.form("req_form", clear_on_submit=False):
             c1, c2 = st.columns(2)
             
-            sel_m = c1.selectbox("Model", [""] + df_m['model'].tolist())
+            sel_m = c1.selectbox("Model", [""] + df_m['model'].unique().tolist()) # เพิ่ม unique() เผื่อกรณี Machine มี String/PCS ซ้ำกัน
             p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
             c1.text_input("Product", value=p_val, disabled=True)
             
@@ -353,18 +353,18 @@ if role == "user":
                         new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                         ws_main.append_row(new_row)
                         
-                        # 2. สร้างข้อความแจ้งเตือน LINE (เพิ่ม Station และ Emoji เพื่อความชัดเจน)
+                        # 2. สร้างข้อความแจ้งเตือน LINE
                         line_msg = (
                             f"🚨 *New Repair Job!* ({app_mode})\n"
                             f"━━━━━━━━━━━━━━━\n"
-                            f"📍 **Station:** {stat}\n"
-                            f"🆔 **SN:** {sn}\n"
-                            f"📦 **Model:** {sel_m}\n"
-                            f"📝 **Problem:** {fail_en}\n"
-                            f"👤 **By:** {nick}"
+                            f"📍 Station: {stat}\n"
+                            f"🆔 SN: {sn}\n"
+                            f"📦 Model: {sel_m}\n"
+                            f"📝 Problem: {fail_en}\n"
+                            f"👤 **By: {nick}"
                         )
                         
-                        # 3. ส่ง LINE แจ้งเตือน (Default ส่งกลุ่มแจ้งซ่อมเดิม)
+                        # 3. ส่ง LINE แจ้งเตือน
                         send_line(line_msg, image_url=urls)
                         
                         # 4. เคลียร์สถานะ
@@ -374,6 +374,37 @@ if role == "user":
                         st.rerun()
                 else:
                     st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
+
+    # --- Tab 2: ค้นหาและติดตาม (โค้ดเดิมของคุณ) ---
+    with t2:
+        st.write("ส่วนการค้นหาและติดตามข้อมูล...") # ใส่ Logic ค้นหาเดิมของคุณตรงนี้
+
+    # --- Tab 3: ลงทะเบียน Model (ส่วนที่เพิ่มใหม่) ---
+    with t3:
+        st.subheader(f"➕ เพิ่ม Model ใหม่สำหรับ {app_mode}")
+        
+        with st.form("add_new_model_form"):
+            new_m = st.text_input(f"ระบุชื่อ {app_mode} Model").strip()
+            new_p = st.text_input("ระบุ Product Name").strip()
+            
+            if st.form_submit_button(f"บันทึกข้อมูล {app_mode} ใหม่"):
+                if new_m and new_p:
+                    with st.spinner("กำลังบันทึก Master Data..."):
+                        if app_mode == "Machine":
+                            ws_master = sh.worksheet("model_machine")
+                            # บันทึกแยก 2 แถว: String และ PCS ตามโจทย์
+                            ws_master.append_row([new_m, new_p, "String"])
+                            ws_master.append_row([new_m, new_p, "PCS"])
+                            st.success(f"✅ บันทึก Model {new_m} แยกเป็น String และ PCS เรียบร้อย!")
+                        else:
+                            ws_master = sh.worksheet("model_mat")
+                            ws_master.append_row([new_m, new_p])
+                            st.success(f"✅ บันทึก Model {new_m} ลงฐานข้อมูล PCBA เรียบร้อย!")
+                        
+                        time.sleep(1.5)
+                        st.rerun()
+                else:
+                    st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
                     
 # --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
 elif role == "tech":
