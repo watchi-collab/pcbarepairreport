@@ -349,7 +349,7 @@ else:
             st.session_state.logged_in = False
             st.rerun()
 
-    # --- 5. แท็บการทำงานหลักแยกตาม Role ---
+# --- 5. แท็บการทำงานหลักแยกตาม Role ---
     if role == "user":
         st.header(f"🚀 Repair Portal ({app_mode})")
         
@@ -500,14 +500,11 @@ else:
                     if st.form_submit_button("บันทึก PCBA"):
                         ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
 
-    # --- ROLE: ADMIN / SUPER ADMIN ---
-elif role in ["admin", "super admin"]:
+    elif role in ["admin", "super admin"]:
         st.header(f"🏛️ Executive Dashboard (All Modes)")
         
-        # ดึงข้อมูลทั้งหมดเพื่อแสดงผลภาพรวม
         df_all_modes = df_all.copy() 
         
-        # --- ส่วนสถิติ (Metrics) ---
         m1, m2, m3, m4 = st.columns(4)
         total_jobs = len(df_all_modes)
         pending = len(df_all_modes[df_all_modes['status'] == 'Pending'])
@@ -519,44 +516,39 @@ elif role in ["admin", "super admin"]:
         m3.metric("🛠️ Wait Part", wait_part)
         m4.metric("✅ Done/Scrap", complete)
 
-        # --- ส่วนการจัดการ Tabs ---
         tabs = st.tabs(["💻 PCBA Works", "🏗️ Machine Works", "🖼️ Gallery", "⚙️ Management"])
         
-        with tabs[0]: # PCBA Works
+        with tabs[0]: 
             st.subheader("รายการงาน PCBA")
             df_pcba = df_all_modes[df_all_modes['category'] == 'PCBA']
             st.dataframe(df_pcba.tail(100), use_container_width=True)
             if st.button("📊 สรุป PCBA ลง LINE", key="line_pcba"):
                 send_daily_summary(df_all_modes, "PCBA")
 
-        with tabs[1]: # Machine Works
+        with tabs[1]: 
             st.subheader("รายการงาน Machine")
             df_machine = df_all_modes[df_all_modes['category'] == 'Machine']
             st.dataframe(df_machine.tail(100), use_container_width=True)
             if st.button("📊 สรุป Machine ลง LINE", key="line_machine"):
                 send_daily_summary(df_all_modes, "Machine")
 
-        with tabs[2]: # Gallery
+        with tabs[2]: 
             st.subheader("คลังรูปภาพงานซ่อมทั้งหมด")
             st.info("ระบบกำลังดึงข้อมูลรูปภาพจากคลังข้อมูลรวม...")
 
-        with tabs[3]: # Management
+        with tabs[3]: 
             st.subheader("📝 Edit Raw Data")
-            # แก้ไขข้อมูลดิบ (ใช้ df_all_modes เพื่อให้เห็นทุกงาน)
             edited_df = st.data_editor(df_all_modes.tail(50), use_container_width=True)
             
-            # --- เฉพาะ Super Admin เท่านั้นที่เห็นส่วนจัดการ User ---
             if st.session_state.role == "super admin":
                 st.divider()
                 st.subheader("🔑 User Management")
-                
                 df_u = get_df("users")
                 u_col1, u_col2 = st.columns([1.5, 1])
                 
                 with u_col1:
                     st.write("📋 รายชื่อผู้ใช้งาน")
                     st.dataframe(df_u, use_container_width=True)
-                    
                     with st.expander("🗑️ ลบผู้ใช้งาน"):
                         user_to_delete = st.selectbox("เลือก ID ที่ต้องการลบ", df_u['username'].unique())
                         confirm_delete = st.checkbox(f"ยืนยันลบ {user_to_delete}")
@@ -564,9 +556,7 @@ elif role in ["admin", "super admin"]:
                             try:
                                 row_idx = df_u[df_u['username'] == user_to_delete].index[0] + 2
                                 ss.worksheet("users").delete_rows(int(row_idx))
-                                st.success("ลบเรียบร้อยแล้ว")
-                                time.sleep(1)
-                                st.rerun()
+                                st.success("ลบเรียบร้อยแล้ว"); time.sleep(1); st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
 
@@ -580,14 +570,10 @@ elif role in ["admin", "super admin"]:
                         
                         if st.form_submit_button("บันทึก"):
                             if nu and np and nn:
-                                # สร้างแถวใหม่ 7 คอลัมน์ตามโครงสร้างฐานข้อมูลใหม่
                                 new_row = [nu, "", "", "", "", nr, nn]
                                 role_map = {"user": 1, "tech": 2, "admin": 3, "super admin": 4}
                                 new_row[role_map.get(nr)] = np
-                                
                                 ss.worksheet("users").append_row(new_row)
-                                st.success("บันทึกสำเร็จ!")
-                                time.sleep(1)
-                                st.rerun()
+                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
                             else:
                                 st.warning("กรุณากรอกข้อมูลให้ครบ")
