@@ -521,14 +521,62 @@ else:
             st.subheader("📝 Edit Raw Data")
             edited_df = st.data_editor(df_report.tail(50), use_container_width=True)
             
-            if role == "super admin":
+            if st.session_state.role == "super admin":
                 st.divider()
                 st.subheader("🔑 User Management")
+                
+                # ดึงข้อมูลผู้ใช้ล่าสุด
                 df_u = get_df("users")
+                
+                # ส่วนที่ 1: ตารางแสดงข้อมูลและการลบ
+                st.write("📋 รายชื่อผู้ใช้งานทั้งหมด")
+                # สร้าง Data Editor สำหรับดูข้อมูล และใช้สำหรับเลือกแถวที่จะลบได้
                 u_col1, u_col2 = st.columns([1.5, 1])
-                u_col1.dataframe(df_u[['username', 'role', 'nickname']], hide_index=True)
-                with u_col2.form("add_user_form"):
-                    nu, np, nn = st.text_input("User"), st.text_input("Pass", type="password"), st.text_input("Nick")
-                    nr = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
-                    if st.form_submit_button("บันทึก"):
-                        ss.worksheet("users").append_row([nu, np, nr, nn, ""]); st.success("เพิ่มแล้ว"); st.rerun()
+                
+                with u_col1:
+                    # แสดงตาราง (ซ่อนพาสเวิร์ดบางส่วนเพื่อความปลอดภัยถ้าต้องการ)
+                    st.dataframe(df_u, use_container_width=True, hide_index=False)
+                    
+                    # ฟอร์มสำหรับการลบ User
+                    with st.expander("🗑️ ลบผู้ใช้งาน"):
+                        user_to_delete = st.selectbox("เลือก Username ที่ต้องการลบ", df_u['username'].unique())
+                        confirm_delete = st.checkbox(f"ยืนยันการลบ {user_to_delete}")
+                        if st.button("ยืนยันลบข้อมูล", type="primary") and confirm_delete:
+                            try:
+                                # ค้นหาแถวใน Worksheet (index ใน pandas เริ่มที่ 0, ใน sheet เริ่มที่ 2 เพราะมี header)
+                                row_idx = df_u[df_u['username'] == user_to_delete].index[0] + 2
+                                ss.worksheet("users").delete_rows(int(row_idx))
+                                st.success(f"ลบ {user_to_delete} เรียบร้อยแล้ว")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"ไม่สามารถลบได้: {e}")
+
+                # ส่วนที่ 2: ฟอร์มเพิ่มผู้ใช้งานใหม่
+                with u_col2:
+                    with st.form("add_user_form"):
+                        st.write("➕ เพิ่มผู้ใช้งานใหม่")
+                        nu = st.text_input("Username (ID)")
+                        np = st.text_input("Password", type="password")
+                        nn = st.text_input("Nickname")
+                        nr = st.selectbox("Role หลัก", ["user", "tech", "admin", "super admin"])
+                        
+                        if st.form_submit_button("บันทึกข้อมูล"):
+                            if nu and np and nn:
+                                # โครงสร้าง 7 คอลัมน์: username, p_user, p_tech, p_admin, p_super, role, nickname
+                                new_row = [nu, "", "", "", "", nr, nn]
+                                
+                                # Mapping ตำแหน่งคอลัมน์รหัสผ่าน (A=0, B=1, C=2, D=3, E=4)
+                                role_map = {"user": 1, "tech": 2, "admin": 3, "super admin": 4}
+                                target_index = role_map.get(nr)
+                                new_row[target_index] = np
+                                
+                                try:
+                                    ss.worksheet("users").append_row(new_row)
+                                    st.success(f"เพิ่ม {nu} สำเร็จ")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                            else:
+                                st.warning("กรุณากรอกข้อมูลให้ครบทุกช่อง")
