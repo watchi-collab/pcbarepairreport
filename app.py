@@ -272,26 +272,42 @@ if not st.session_state.logged_in:
             
             if submit:
                 df_users = get_df("users")
-                df_users['username'] = df_users['username'].astype(str)
+                # แปลง username เป็น string และลบช่องว่างเพื่อป้องกัน Error ในการค้นหา
+                df_users['username'] = df_users['username'].astype(str).str.strip()
                 
-                match = df_users[
-                    (df_users['username'] == str(user_input).strip()) & 
-                    (df_users['password'] == str(pass_input).strip()) & 
-                    (df_users['role'] == role_input)
-                ]
+                # 1. ค้นหาแถวที่มี username ตรงกับที่พิมพ์มา
+                user_match = df_users[df_users['username'] == str(user_input).strip()]
                 
-                if not match.empty:
-                    st.session_state.logged_in = True
-                    st.session_state.role = role_input
-                    st.session_state.app_mode = mode_input
-                    st.session_state.nick = match.iloc[0]['nickname'] 
+                if not user_match.empty:
+                    # 2. กำหนดชื่อคอลัมน์ password ตาม role ที่เลือกจาก selectbox
+                    role_to_col = {
+                        "user": "password_user",
+                        "tech": "password_tech",
+                        "admin": "password_admin",
+                        "super admin": "password_super_admin"
+                    }
+                    password_column = role_to_col.get(role_input)
                     
-                    st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} (Role: {role_input})")
-                    time.sleep(1)
-                    st.rerun()
+                    # 3. ดึงค่า password จากคอลัมน์ที่ตรงกับ Role และเช็คว่าตรงกับที่กรอกไหม
+                    # (ใช้ .iloc[0] เพราะ username ควรจะเป็นค่า Unique)
+                    db_password = str(user_match.iloc[0][password_column]).strip()
+                    
+                    if db_password != "nan" and db_password == str(pass_input).strip():
+                        # Login สำเร็จ
+                        st.session_state.logged_in = True
+                        st.session_state.role = role_input
+                        st.session_state.app_mode = mode_input
+                        st.session_state.nick = user_match.iloc[0]['nickname']
+                        
+                        st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} (Role: {role_input})")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        # Password ไม่ตรง หรือไม่มีสิทธิ์ใน Role นั้น (ค่าในตารางเป็นว่าง)
+                        st.error("❌ รหัสผ่านไม่ถูกต้องสำหรับสิทธิ์ (Role) นี้")
                 else:
-                    st.error("❌ ไม่พบข้อมูลผู้ใช้ หรือรหัสผ่านไม่ถูกต้องสำหรับ Role นี้")
-
+                    # ไม่พบ Username ในระบบ
+                    st.error("❌ ไม่พบข้อมูลผู้ใช้งานในระบบ")
 # --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
 else: 
     # --- 1. ประกาศตัวแปร ---
