@@ -502,11 +502,11 @@ else:
 
     # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
-    st.header(f"🏛️ Executive Dashboard (All Modes)")
+        st.header(f"🏛️ Executive Dashboard (All Modes)")
         
         # ดึงข้อมูลทั้งหมดโดยไม่สน app_mode เพื่อให้ Admin เห็นภาพรวม
         #
-    df_all_modes = df_all.copy() 
+        df_all_modes = df_all.copy() 
         
         # สถิติรวมทั้ง 2 ระบบ (PCBA & Machine)
         c1, c2, c3, c4 = st.columns(4)
@@ -542,6 +542,16 @@ elif role in ["admin", "super admin"]:
             # Logic การดึงรูปภาพจาก Cloud/Drive ของคุณ
             st.info("แสดงรูปภาพจากทั้งระบบ PCBA และ Machine")
 
+        with tabs[3]: # Management (แก้ไข Data & User)
+            st.subheader("📝 Edit Raw Data (All Categories)")
+            # Admin สามารถแก้ได้ทุกบรรทัดในไฟล์เดียว
+            edited_df = st.data_editor(df_all_modes.tail(50), use_container_width=True)
+            
+            if role == "super admin":
+                st.divider()
+                st.subheader("🔑 User Management System")
+                # ส่วนนี้ใช้ Code การเพิ่ม/ลบ User ที่เราทำกันไว้ก่อนหน้า
+                # ... (ใส่ Code User Management ที่ให้ไปในข้อความก่อนหน้าตรงนี้) ...
  
 
         with tabs[3]:
