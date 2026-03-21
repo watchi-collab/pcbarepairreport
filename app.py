@@ -270,11 +270,17 @@ if not st.session_state.logged_in:
             
             submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
             
+            # --- ปรับปรุงส่วน Login ในขั้นตอนที่ 2 ---
             if submit:
                 df_users = get_df("users")
+                
+                # 1. แปลง username ใน df ให้เป็น string ทั้งหมดเพื่อป้องกัน Error ในการเปรียบเทียบ
+                df_users['username'] = df_users['username'].astype(str)
+                
+                # 2. ตรวจสอบข้อมูล โดยเช็คทั้ง Username, Password และ Role ให้ตรงกับที่เลือกใน selectbox
                 match = df_users[
-                    (df_users['username'] == user_input) & 
-                    (df_users['password'] == str(pass_input)) & 
+                    (df_users['username'] == str(user_input).strip()) & 
+                    (df_users['password'] == str(pass_input).strip()) & 
                     (df_users['role'] == role_input)
                 ]
                 
@@ -282,12 +288,14 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.role = role_input
                     st.session_state.app_mode = mode_input
-                    st.session_state.nick = match.iloc[0]['nickname']
-                    st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick}!")
+                    # ดึง nickname จากแถวที่ Match (เช่น ถ้าเลือก tech ก็จะได้ Nickname ของแถว tech)
+                    st.session_state.nick = match.iloc[0]['nickname'] 
+                    
+                    st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} (Role: {role_input})")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("❌ ข้อมูลไม่ถูกต้อง หรือไม่มีสิทธิ์ใน Role นี้")
+                    st.error("❌ ไม่พบข้อมูลผู้ใช้ หรือรหัสผ่านไม่ถูกต้องสำหรับ Role นี้")
 
 # --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
 else:
