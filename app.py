@@ -345,301 +345,301 @@ else: # บรรทัดนี้คือจุดเริ่มต้นเ
     # --- 5. แท็บการทำงานหลัก (ต่อจากนี้ให้ใส่ Code ของ Tech/User ที่คุณเขียนไว้) ---
     # if role == "user": ...
     # elif role == "tech": ...
-if role == "user":
-    st.header(f"🚀 Repair Portal ({app_mode})")
-    
-    if "uploader_key" not in st.session_state:
-        st.session_state.uploader_key = 0
-
-    # เพิ่ม Tab "ลงทะเบียน Model" เข้าไปรวมกับของเดิม
-    t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม", "📋 ลงทะเบียน Model"])
-    
-    with t1:
-        df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
-        df_st = get_df("station_dropdowns")
+    if role == "user":
+        st.header(f"🚀 Repair Portal ({app_mode})")
         
-        with st.form("req_form", clear_on_submit=False):
-            c1, c2 = st.columns(2)
-            
-            sel_m = c1.selectbox("Model", [""] + df_m['model'].unique().tolist()) # เพิ่ม unique() เผื่อกรณี Machine มี String/PCS ซ้ำกัน
-            p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
-            c1.text_input("Product", value=p_val, disabled=True)
-            
-            sn_input = c1.text_input("Serial Number", key="sn_field").strip()
-            
-            wo = c2.text_input("Work Order").strip().upper()
-            stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
-            fail_th = c2.text_area("อาการเสีย (Problem Description)")
-            
-            u_imgs = st.file_uploader("📸 แนบรูปภาพ (จะส่งเข้า LINE)", 
-                                     accept_multiple_files=True, 
-                                     key=f"user_upload_{st.session_state.uploader_key}")
-            
-            if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
-                if not re.match(r'^[a-zA-Z0-9]+$', sn_input):
-                    st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง: '{sn_input}'")
-                    st.warning("กรุณาเปลี่ยนภาษาคีย์บอร์ดแล้วแสกนใหม่อีกครั้ง")
-                
-                elif sel_m and sn_input and wo and stat:
-                    with st.spinner("กำลังบันทึกข้อมูล..."):
-                        sn = validate_sn(sn_input)
-                        fail_en = translate_to_en(fail_th)
-                        urls = upload_images(u_imgs, "REQ", sn)
-                        
-                        # 1. บันทึกข้อมูลลง Google Sheets
-                        new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
-                        ws_main.append_row(new_row)
-                        
-                        # 2. สร้างข้อความแจ้งเตือน LINE
-                        line_msg = (
-                            f"🚨 *New Repair Job!* ({app_mode})\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"📍 Station: {stat}\n"
-                            f"🆔 SN: {sn}\n"
-                            f"📦 Model: {sel_m}\n"
-                            f"📝 Problem: {fail_en}\n"
-                            f"👤 **By: {nick}"
-                        )
-                        
-                        # 3. ส่ง LINE แจ้งเตือน
-                        send_line(line_msg, image_url=urls)
-                        
-                        # 4. เคลียร์สถานะ
-                        st.session_state.uploader_key += 1 
-                        st.success("✅ บันทึกและแจ้งเตือนกลุ่ม LINE เรียบร้อย!")
-                        time.sleep(1.5)
-                        st.rerun()
-                else:
-                    st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
-
-    # --- Tab 2: ค้นหาและติดตาม (โค้ดเดิมของคุณ) ---
-    with t2:
-        st.write("ส่วนการค้นหาและติดตามข้อมูล...") # ใส่ Logic ค้นหาเดิมของคุณตรงนี้
-
-    # --- Tab 3: ลงทะเบียน Model (ส่วนที่เพิ่มใหม่) ---
-    # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
-    # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
-    with t3:
-        st.subheader(f"➕ ลงทะเบียน Model ใหม่ ({app_mode})")
+        if "uploader_key" not in st.session_state:
+            st.session_state.uploader_key = 0
+    
+        # เพิ่ม Tab "ลงทะเบียน Model" เข้าไปรวมกับของเดิม
+        t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม", "📋 ลงทะเบียน Model"])
         
-        with st.form("user_add_new_model_form"):
-            if app_mode == "PCBA":
-                u_new_m = st.text_input("PCBA Model Name").strip()
-                u_new_p = st.text_input("Product Name").strip()
+        with t1:
+            df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
+            df_st = get_df("station_dropdowns")
+            
+            with st.form("req_form", clear_on_submit=False):
+                c1, c2 = st.columns(2)
                 
-                if st.form_submit_button("บันทึกข้อมูล PCBA"):
-                    if u_new_m and u_new_p:
-                        # เปลี่ยนจาก sh เป็น ss ให้ตรงกับตัวแปรต้นฉบับของคุณ
-                        ws_master = ss.worksheet("model_mat")
-                        ws_master.append_row([u_new_m, u_new_p])
-                        st.success(f"✅ บันทึก PCBA Model: {u_new_m} เรียบร้อย!")
-                        time.sleep(1.5)
-                        st.rerun()
-                    else:
-                        st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
-
-            else:  # โหมด Machine: เพิ่มแบบ 3 ช่องตามที่ต้องการ
-                col_u1, col_u2 = st.columns(2)
-                with col_u1:
-                    u_m_model = st.text_input("Model Machine (Text)").strip()
-                    u_m_product = st.text_input("Product Name (Text)").strip()
-                with col_u2:
-                    u_m_work = st.text_input("Work Name (เช่น String หรือ PCS)").strip()
+                sel_m = c1.selectbox("Model", [""] + df_m['model'].unique().tolist()) # เพิ่ม unique() เผื่อกรณี Machine มี String/PCS ซ้ำกัน
+                p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
+                c1.text_input("Product", value=p_val, disabled=True)
                 
-                if st.form_submit_button("บันทึกข้อมูล Machine"):
-                    if u_m_model and u_m_product and u_m_work:
+                sn_input = c1.text_input("Serial Number", key="sn_field").strip()
+                
+                wo = c2.text_input("Work Order").strip().upper()
+                stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
+                fail_th = c2.text_area("อาการเสีย (Problem Description)")
+                
+                u_imgs = st.file_uploader("📸 แนบรูปภาพ (จะส่งเข้า LINE)", 
+                                         accept_multiple_files=True, 
+                                         key=f"user_upload_{st.session_state.uploader_key}")
+                
+                if st.form_submit_button("ยืนยันแจ้งซ่อมและส่งข้อมูลเข้า LINE", use_container_width=True):
+                    if not re.match(r'^[a-zA-Z0-9]+$', sn_input):
+                        st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง: '{sn_input}'")
+                        st.warning("กรุณาเปลี่ยนภาษาคีย์บอร์ดแล้วแสกนใหม่อีกครั้ง")
+                    
+                    elif sel_m and sn_input and wo and stat:
                         with st.spinner("กำลังบันทึกข้อมูล..."):
-                            # เปลี่ยนจาก sh เป็น ss
-                            ws_master = ss.worksheet("model_machine")
-                            ws_master.append_row([u_m_model, u_m_product, u_m_work])
+                            sn = validate_sn(sn_input)
+                            fail_en = translate_to_en(fail_th)
+                            urls = upload_images(u_imgs, "REQ", sn)
                             
-                        st.success(f"✅ บันทึก Model: {u_m_model} | Work: {u_m_work} เรียบร้อย!")
-                        time.sleep(1.5)
-                        st.rerun()
+                            # 1. บันทึกข้อมูลลง Google Sheets
+                            new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
+                            ws_main.append_row(new_row)
+                            
+                            # 2. สร้างข้อความแจ้งเตือน LINE
+                            line_msg = (
+                                f"🚨 *New Repair Job!* ({app_mode})\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"📍 Station: {stat}\n"
+                                f"🆔 SN: {sn}\n"
+                                f"📦 Model: {sel_m}\n"
+                                f"📝 Problem: {fail_en}\n"
+                                f"👤 **By: {nick}"
+                            )
+                            
+                            # 3. ส่ง LINE แจ้งเตือน
+                            send_line(line_msg, image_url=urls)
+                            
+                            # 4. เคลียร์สถานะ
+                            st.session_state.uploader_key += 1 
+                            st.success("✅ บันทึกและแจ้งเตือนกลุ่ม LINE เรียบร้อย!")
+                            time.sleep(1.5)
+                            st.rerun()
                     else:
-                        st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
-                    
-# --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
-elif role == "tech":
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("📊 Reporting System")
-        report_type = st.selectbox("เลือกส่วนงานที่ต้องการรายงาน:", ["PCBA", "Machine"], index=0 if app_mode == "PCBA" else 1)
-        if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
-            send_daily_summary(df_all, report_type)
-
-    st.header("🔧 Technician Workspace")
+                        st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน (Model, SN, WO, Station)")
     
+        # --- Tab 2: ค้นหาและติดตาม (โค้ดเดิมของคุณ) ---
+        with t2:
+            st.write("ส่วนการค้นหาและติดตามข้อมูล...") # ใส่ Logic ค้นหาเดิมของคุณตรงนี้
     
-    t_search, t_new_pcba, t_add_m = st.tabs([
-        "🔍 วิเคราะห์/แก้ไขงานซ่อม", 
-        "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)", 
-        "⚙️ เพิ่ม Master Data"
-    ])
-
-    with t_search:
-        sn_scan = st.text_input("🔍 Scan SN (ได้ทั้ง PCBA & Machine)", key="tech_sn_input").strip()
-        if sn_scan:
-            sn_clean = validate_sn(sn_scan)
-            # ค้นหาข้อมูลจากทุก Category เพื่อให้ Tech จัดการได้หมด
-            job = df_all[df_all['serial_number'] == sn_clean]
+        # --- Tab 3: ลงทะเบียน Model (ส่วนที่เพิ่มใหม่) ---
+        # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
+        # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
+        with t3:
+            st.subheader(f"➕ ลงทะเบียน Model ใหม่ ({app_mode})")
             
-            if not job.empty:
-                j = job.iloc[-1]
-                ridx = job.index[-1] + 2 
-                st.info(f"📁 Category: {j['category']} | 📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
+            with st.form("user_add_new_model_form"):
+                if app_mode == "PCBA":
+                    u_new_m = st.text_input("PCBA Model Name").strip()
+                    u_new_p = st.text_input("Product Name").strip()
+                    
+                    if st.form_submit_button("บันทึกข้อมูล PCBA"):
+                        if u_new_m and u_new_p:
+                            # เปลี่ยนจาก sh เป็น ss ให้ตรงกับตัวแปรต้นฉบับของคุณ
+                            ws_master = ss.worksheet("model_mat")
+                            ws_master.append_row([u_new_m, u_new_p])
+                            st.success(f"✅ บันทึก PCBA Model: {u_new_m} เรียบร้อย!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+    
+                else:  # โหมด Machine: เพิ่มแบบ 3 ช่องตามที่ต้องการ
+                    col_u1, col_u2 = st.columns(2)
+                    with col_u1:
+                        u_m_model = st.text_input("Model Machine (Text)").strip()
+                        u_m_product = st.text_input("Product Name (Text)").strip()
+                    with col_u2:
+                        u_m_work = st.text_input("Work Name (เช่น String หรือ PCS)").strip()
+                    
+                    if st.form_submit_button("บันทึกข้อมูล Machine"):
+                        if u_m_model and u_m_product and u_m_work:
+                            with st.spinner("กำลังบันทึกข้อมูล..."):
+                                # เปลี่ยนจาก sh เป็น ss
+                                ws_master = ss.worksheet("model_machine")
+                                ws_master.append_row([u_m_model, u_m_product, u_m_work])
+                                
+                            st.success(f"✅ บันทึก Model: {u_m_model} | Work: {u_m_work} เรียบร้อย!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+                        
+    # --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
+    elif role == "tech":
+        with st.sidebar:
+            st.markdown("---")
+            st.subheader("📊 Reporting System")
+            report_type = st.selectbox("เลือกส่วนงานที่ต้องการรายงาน:", ["PCBA", "Machine"], index=0 if app_mode == "PCBA" else 1)
+            if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
+                send_daily_summary(df_all, report_type)
+    
+        st.header("🔧 Technician Workspace")
+        
+        
+        t_search, t_new_pcba, t_add_m = st.tabs([
+            "🔍 วิเคราะห์/แก้ไขงานซ่อม", 
+            "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)", 
+            "⚙️ เพิ่ม Master Data"
+        ])
+    
+        with t_search:
+            sn_scan = st.text_input("🔍 Scan SN (ได้ทั้ง PCBA & Machine)", key="tech_sn_input").strip()
+            if sn_scan:
+                sn_clean = validate_sn(sn_scan)
+                # ค้นหาข้อมูลจากทุก Category เพื่อให้ Tech จัดการได้หมด
+                job = df_all[df_all['serial_number'] == sn_clean]
                 
-                # เก็บรูปภาพเดิมไว้เผื่อส่งต่อให้ Job PCBA
-                existing_user_img = j.get('user_image', '')
+                if not job.empty:
+                    j = job.iloc[-1]
+                    ridx = job.index[-1] + 2 
+                    st.info(f"📁 Category: {j['category']} | 📍 Station: {j.get('station')} | ⚠️ Problem: {j.get('failure')}")
+                    
+                    # เก็บรูปภาพเดิมไว้เผื่อส่งต่อให้ Job PCBA
+                    existing_user_img = j.get('user_image', '')
+                    
+                    with st.expander("🖼️ ดูรูปภาพจาก User"):
+                        display_images_with_link(existing_user_img, "รูปภาพอาการเสีย")
+    
+                    with st.form("tech_update"):
+                        current_wait_part = str(j.get('wait_part_name', "")).strip()
+                        p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
+                        
+                        stat_list = ["Complete", "Scrap", "Wait Part"]
+                        default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
+                        res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
+                        
+                        cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
+                        cls = st.selectbox("Classification", cls_list)
+                        case_th = st.text_input("Root Cause")
+                        existing_action = str(j.get('action', "")).strip()
+                        act_th = st.text_area("Action Taken", value=existing_action)
+                        tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
+                        
+                        if st.form_submit_button("บันทึกข้อมูล"):
+                            can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
+                            if can_save:
+                                with st.spinner("กำลังบันทึก..."):
+                                    case_en = translate_to_en(case_th)
+                                    act_en = translate_to_en(act_th)
+                                    if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
+                                        act_en = f"[Waiting Part: {p_name_input}] " + act_en
+                                    t_urls = upload_images(tech_imgs, "FIX", sn_clean)
+                                    
+                                    ws_main.update_acell(f'B{ridx}', res)
+                                    ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]])
+                                    ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
+                                    if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
+                                    
+                                    if res in ["Complete", "Scrap"]: 
+                                        send_line(f"✅ Job Closed! ({j['category']})\nSN: {sn_clean}\nStatus: {res}\nBy: {nick}")
+                                    
+                                    st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
+    
+    
+    
+        with t_new_pcba:
+            st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
+            
+            # 1. สแกน SN เครื่องจักรเพื่อดึงข้อมูลเดิม (WO, Station, Model)
+            sn_machine_ref = st.text_input("สแกน SN เครื่องจักรที่พบปัญหาบอร์ด (เพื่อดึงรูป/Station/WO)", key="sn_ref")
+            
+            ref_data = {}
+            if sn_machine_ref:
+                sn_m_clean = validate_sn(sn_machine_ref)
+                # ค้นหาข้อมูลล่าสุดของเครื่องจักรเครื่องนี้
+                machine_job = df_all[df_all['serial_number'] == sn_m_clean]
+                if not machine_job.empty:
+                    m_last = machine_job.iloc[-1]
+                    ref_data = {
+                        "work_order": m_last.get('work_order', ''),
+                        "station": m_last.get('station', ''),
+                        "model_machine": m_last.get('model', ''),
+                        "user_image": m_last.get('user_image', '')
+                    }
+                    st.success(f"🔗 พบข้อมูลเชื่อมโยง: WO {ref_data['work_order']} | Station: {ref_data['station']}")
+                else:
+                    st.warning("⚠️ ไม่พบข้อมูลเครื่องจักรเครื่องนี้ในระบบ (คุณต้องกรอกข้อมูลเอง)")
+        
+            # --- ฟอร์มแจ้งซ่อม PCBA ---
+            with st.form("new_pcba_from_machine"):
+                col1, col2 = st.columns(2)
                 
-                with st.expander("🖼️ ดูรูปภาพจาก User"):
-                    display_images_with_link(existing_user_img, "รูปภาพอาการเสีย")
-
-                with st.form("tech_update"):
-                    current_wait_part = str(j.get('wait_part_name', "")).strip()
-                    p_name_input = st.text_input("Waiting Part Name", value=current_wait_part)
+                with col1:
+                    # เลือก Model PCBA
+                    df_model_mat = get_df("model_mat")
+                    # แก้ไขชื่อคอลัมน์ให้ตรงกับ Google Sheets (ใช้ชื่อ 'model')
+                    pcba_models = [""] + df_model_mat['model'].dropna().unique().tolist()
+                    selected_pcba_model = st.selectbox("เลือก Model PCBA (จาก Model Mat)", pcba_models)
                     
-                    stat_list = ["Complete", "Scrap", "Wait Part"]
-                    default_status = "Wait Part" if p_name_input else (j.get('status') if j.get('status') in stat_list else "Complete")
-                    res = st.radio("Status:", stat_list, index=stat_list.index(default_status), horizontal=True)
+                    # SN ของบอร์ด PCBA
+                    sn_pcba = st.text_input("สแกน SN ของบอร์ด PCBA").strip()
                     
-                    cls_list = [""] + get_df("class_dropdowns")['classification'].tolist()
-                    cls = st.selectbox("Classification", cls_list)
-                    case_th = st.text_input("Root Cause")
-                    existing_action = str(j.get('action', "")).strip()
-                    act_th = st.text_area("Action Taken", value=existing_action)
-                    tech_imgs = st.file_uploader("📸 แนบรูปภาพปิดงาน", accept_multiple_files=True)
+                with col2:
+                    # ดึง Station มาจาก Machine อัตโนมัติ (แต่ยอมให้แก้ไขได้)
+                    stn_name = st.text_input("Station/Machine Name", value=ref_data.get('station', ''))
                     
-                    if st.form_submit_button("บันทึกข้อมูล"):
-                        can_save = (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th)
-                        if can_save:
-                            with st.spinner("กำลังบันทึก..."):
-                                case_en = translate_to_en(case_th)
-                                act_en = translate_to_en(act_th)
-                                if res == "Wait Part" and p_name_input and (p_name_input not in act_en):
-                                    act_en = f"[Waiting Part: {p_name_input}] " + act_en
-                                t_urls = upload_images(tech_imgs, "FIX", sn_clean)
-                                
-                                ws_main.update_acell(f'B{ridx}', res)
-                                ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, ""]])
-                                ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
-                                if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                                
-                                if res in ["Complete", "Scrap"]: 
-                                    send_line(f"✅ Job Closed! ({j['category']})\nSN: {sn_clean}\nStatus: {res}\nBy: {nick}")
-                                
+                    # อาการเสีย
+                    pcba_failure = st.text_area("ระบุอาการเสียของบอร์ด")
+        
+                # ปุ่มส่งข้อมูล
+                if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
+                    # ตรวจสอบตัวแปร selected_pcba_model และค่าอื่นๆ
+                    if selected_pcba_model and sn_pcba and pcba_failure:
+                        with st.spinner("กำลังออกใบแจ้งซ่อม PCBA..."):
+                            
+                            # ค้นหา product_name จาก model_mat เพื่อบันทึกลง Column E
+                            prod_match = df_model_mat[df_model_mat['model'] == selected_pcba_model]
+                            p_name = prod_match.iloc[0]['product_name'] if not prod_match.empty else ""
+    
+                            # เตรียมข้อมูลสำหรับบันทึก (ให้ Category เป็น PCBA เสมอ)
+                            new_pcba_job = [
+                                "PCBA",                                 # A: Category
+                                "Pending",                              # B: status
+                                ref_data.get('work_order', ''),         # C: work_order
+                                selected_pcba_model,                    # D: model
+                                p_name,                                 # E: product_name (เพิ่มเพื่อให้ข้อมูลครบ)
+                                sn_pcba,                                # F: serial_number
+                                stn_name,                               # G: station
+                                pcba_failure,                           # H: failure
+                                get_now(),                              # I: user_time
+                                "", "", "", "", "", "",                 # J-O: เว้นว่างไว้
+                                ref_data.get('user_image', '')          # Q: user_image (ใช้รูปเดิมจากหน้างาน)
+                            ]
+                            
+                            # บันทึกลง Google Sheets
+                            ws_main.append_row(new_pcba_job)
+                            
+                            # ส่ง LINE แจ้งเตือน
+                            msg = (f"📥 [New PCBA Repair]\n"
+                                   f"SN: {sn_pcba}\n"
+                                   f"Model: {selected_pcba_model}\n"
+                                   f"From Station: {stn_name}\n"
+                                   f"Problem: {pcba_failure}\n"
+                                   f"Ref WO: {ref_data.get('work_order', 'N/A')}")
+                            send_line(msg)
+                            
+                            st.success("ส่งข้อมูลสำเร็จ!")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("กรุณากรอกข้อมูลให้ครบถ้วน (เลือก Model, SN และอาการเสีย)")
+    
+        with t_add_m:
+                st.subheader(f"⚙️ เพิ่ม Master Data ({app_mode})")
+                with st.form("tech_add_model_form"):
+                    if app_mode == "Machine":
+                        c1, c2 = st.columns(2)
+                        t_m = c1.text_input("Model Name").strip()
+                        t_p = c1.text_input("Product Name").strip()
+                        t_w = c2.text_input("Work Name (เช่น String/PCS)").strip()
+                        
+                        if st.form_submit_button("🚀 บันทึก Machine Model (Tech Mode)"):
+                            if t_m and t_p and t_w:
+                                ss.worksheet("model_machine").append_row([t_m, t_p, t_w])
                                 st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-            else: st.warning("ไม่พบข้อมูล SN นี้ในระบบ")
-
-
-
-    with t_new_pcba:
-        st.subheader("📝 ออกใบแจ้งซ่อม PCBA (เชื่อมโยงจาก Machine Repair)")
-        
-        # 1. สแกน SN เครื่องจักรเพื่อดึงข้อมูลเดิม (WO, Station, Model)
-        sn_machine_ref = st.text_input("สแกน SN เครื่องจักรที่พบปัญหาบอร์ด (เพื่อดึงรูป/Station/WO)", key="sn_ref")
-        
-        ref_data = {}
-        if sn_machine_ref:
-            sn_m_clean = validate_sn(sn_machine_ref)
-            # ค้นหาข้อมูลล่าสุดของเครื่องจักรเครื่องนี้
-            machine_job = df_all[df_all['serial_number'] == sn_m_clean]
-            if not machine_job.empty:
-                m_last = machine_job.iloc[-1]
-                ref_data = {
-                    "work_order": m_last.get('work_order', ''),
-                    "station": m_last.get('station', ''),
-                    "model_machine": m_last.get('model', ''),
-                    "user_image": m_last.get('user_image', '')
-                }
-                st.success(f"🔗 พบข้อมูลเชื่อมโยง: WO {ref_data['work_order']} | Station: {ref_data['station']}")
-            else:
-                st.warning("⚠️ ไม่พบข้อมูลเครื่องจักรเครื่องนี้ในระบบ (คุณต้องกรอกข้อมูลเอง)")
-    
-        # --- ฟอร์มแจ้งซ่อม PCBA ---
-        with st.form("new_pcba_from_machine"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # เลือก Model PCBA
-                df_model_mat = get_df("model_mat")
-                # แก้ไขชื่อคอลัมน์ให้ตรงกับ Google Sheets (ใช้ชื่อ 'model')
-                pcba_models = [""] + df_model_mat['model'].dropna().unique().tolist()
-                selected_pcba_model = st.selectbox("เลือก Model PCBA (จาก Model Mat)", pcba_models)
-                
-                # SN ของบอร์ด PCBA
-                sn_pcba = st.text_input("สแกน SN ของบอร์ด PCBA").strip()
-                
-            with col2:
-                # ดึง Station มาจาก Machine อัตโนมัติ (แต่ยอมให้แก้ไขได้)
-                stn_name = st.text_input("Station/Machine Name", value=ref_data.get('station', ''))
-                
-                # อาการเสีย
-                pcba_failure = st.text_area("ระบุอาการเสียของบอร์ด")
-    
-            # ปุ่มส่งข้อมูล
-            if st.form_submit_button("🚀 ส่งซ่อม PCBA และแจ้งกลุ่ม LINE"):
-                # ตรวจสอบตัวแปร selected_pcba_model และค่าอื่นๆ
-                if selected_pcba_model and sn_pcba and pcba_failure:
-                    with st.spinner("กำลังออกใบแจ้งซ่อม PCBA..."):
-                        
-                        # ค้นหา product_name จาก model_mat เพื่อบันทึกลง Column E
-                        prod_match = df_model_mat[df_model_mat['model'] == selected_pcba_model]
-                        p_name = prod_match.iloc[0]['product_name'] if not prod_match.empty else ""
-
-                        # เตรียมข้อมูลสำหรับบันทึก (ให้ Category เป็น PCBA เสมอ)
-                        new_pcba_job = [
-                            "PCBA",                                 # A: Category
-                            "Pending",                              # B: status
-                            ref_data.get('work_order', ''),         # C: work_order
-                            selected_pcba_model,                    # D: model
-                            p_name,                                 # E: product_name (เพิ่มเพื่อให้ข้อมูลครบ)
-                            sn_pcba,                                # F: serial_number
-                            stn_name,                               # G: station
-                            pcba_failure,                           # H: failure
-                            get_now(),                              # I: user_time
-                            "", "", "", "", "", "",                 # J-O: เว้นว่างไว้
-                            ref_data.get('user_image', '')          # Q: user_image (ใช้รูปเดิมจากหน้างาน)
-                        ]
-                        
-                        # บันทึกลง Google Sheets
-                        ws_main.append_row(new_pcba_job)
-                        
-                        # ส่ง LINE แจ้งเตือน
-                        msg = (f"📥 [New PCBA Repair]\n"
-                               f"SN: {sn_pcba}\n"
-                               f"Model: {selected_pcba_model}\n"
-                               f"From Station: {stn_name}\n"
-                               f"Problem: {pcba_failure}\n"
-                               f"Ref WO: {ref_data.get('work_order', 'N/A')}")
-                        send_line(msg)
-                        
-                        st.success("ส่งข้อมูลสำเร็จ!")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.error("กรุณากรอกข้อมูลให้ครบถ้วน (เลือก Model, SN และอาการเสีย)")
-
-    with t_add_m:
-            st.subheader(f"⚙️ เพิ่ม Master Data ({app_mode})")
-            with st.form("tech_add_model_form"):
-                if app_mode == "Machine":
-                    c1, c2 = st.columns(2)
-                    t_m = c1.text_input("Model Name").strip()
-                    t_p = c1.text_input("Product Name").strip()
-                    t_w = c2.text_input("Work Name (เช่น String/PCS)").strip()
-                    
-                    if st.form_submit_button("🚀 บันทึก Machine Model (Tech Mode)"):
-                        if t_m and t_p and t_w:
-                            ss.worksheet("model_machine").append_row([t_m, t_p, t_w])
-                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                else:
-                    t_m = st.text_input("PCBA Model Name").strip()
-                    t_p = st.text_input("Product Name").strip()
-                    if st.form_submit_button("🚀 บันทึก PCBA Model"):
-                        if t_m and t_p:
-                            ss.worksheet("model_mat").append_row([t_m, t_p])
-                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                    else:
+                        t_m = st.text_input("PCBA Model Name").strip()
+                        t_p = st.text_input("Product Name").strip()
+                        if st.form_submit_button("🚀 บันทึก PCBA Model"):
+                            if t_m and t_p:
+                                ss.worksheet("model_mat").append_row([t_m, t_p])
+                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
 
 # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
