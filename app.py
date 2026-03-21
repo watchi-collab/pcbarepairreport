@@ -380,31 +380,48 @@ if role == "user":
         st.write("ส่วนการค้นหาและติดตามข้อมูล...") # ใส่ Logic ค้นหาเดิมของคุณตรงนี้
 
     # --- Tab 3: ลงทะเบียน Model (ส่วนที่เพิ่มใหม่) ---
+    # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
     with t3:
-        st.subheader(f"➕ เพิ่ม Model ใหม่สำหรับ {app_mode}")
+        st.subheader(f"➕ ลงทะเบียน Model ใหม่ ({app_mode})")
         
-        with st.form("add_new_model_form"):
-            new_m = st.text_input(f"ระบุชื่อ {app_mode} Model").strip()
-            new_p = st.text_input("ระบุ Product Name").strip()
-            
-            if st.form_submit_button(f"บันทึกข้อมูล {app_mode} ใหม่"):
-                if new_m and new_p:
-                    with st.spinner("กำลังบันทึก Master Data..."):
-                        if app_mode == "Machine":
-                            ws_master = sh.worksheet("model_machine")
-                            # บันทึกแยก 2 แถว: String และ PCS ตามโจทย์
-                            ws_master.append_row([new_m, new_p, "String"])
-                            ws_master.append_row([new_m, new_p, "PCS"])
-                            st.success(f"✅ บันทึก Model {new_m} แยกเป็น String และ PCS เรียบร้อย!")
-                        else:
-                            ws_master = sh.worksheet("model_mat")
-                            ws_master.append_row([new_m, new_p])
-                            st.success(f"✅ บันทึก Model {new_m} ลงฐานข้อมูล PCBA เรียบร้อย!")
-                        
+        with st.form("user_add_new_model_form"):
+            # ส่วนของ PCBA (คงเดิมตามโครงสร้าง model_mat)
+            if app_mode == "PCBA":
+                u_new_m = st.text_input("PCBA Model Name").strip()
+                u_new_p = st.text_input("Product Name").strip()
+                
+                if st.form_submit_button("บันทึกข้อมูล PCBA"):
+                    if u_new_m and u_new_p:
+                        ws_master = sh.worksheet("model_mat")
+                        ws_master.append_row([u_new_m, u_new_p])
+                        st.success(f"✅ บันทึก PCBA Model: {u_new_m} เรียบร้อย!")
                         time.sleep(1.5)
                         st.rerun()
-                else:
-                    st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+                    else:
+                        st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+
+            # ส่วนของ Machine (ปรับตามที่คุณต้องการ: ให้กรอกเองทั้ง 3 ช่อง)
+            else:
+                col_u1, col_u2 = st.columns(2)
+                with col_u1:
+                    u_m_model = st.text_input("Model Machine (Text)").strip()
+                    u_m_product = st.text_input("Product Name (Text)").strip()
+                with col_u2:
+                    # เพิ่มช่อง Work Name ให้ User กรอกเองตามโจทย์
+                    u_m_work = st.text_input("Work Name (เช่น String หรือ PCS)").strip()
+                
+                if st.form_submit_button("บันทึกข้อมูล Machine"):
+                    if u_m_model and u_m_product and u_m_work:
+                        with st.spinner("กำลังบันทึกข้อมูล..."):
+                            ws_master = sh.worksheet("model_machine")
+                            # บันทึก 3 คอลัมน์ตามที่ User กรอกมา: model, product_name, work_name
+                            ws_master.append_row([u_m_model, u_m_product, u_m_work])
+                            
+                        st.success(f"✅ บันทึก Model: {u_m_model} | Work: {u_m_work} เรียบร้อย!")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("⚠️ กรุณากรอกข้อมูล Model, Product และ Work Name ให้ครบถ้วน")
                     
 # --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
 elif role == "tech":
