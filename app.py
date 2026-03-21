@@ -298,18 +298,16 @@ if not st.session_state.logged_in:
                     st.error("❌ ไม่พบข้อมูลผู้ใช้ หรือรหัสผ่านไม่ถูกต้องสำหรับ Role นี้")
 
 # --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
-else:
-    # ดึงค่าจาก Session มาใช้เป็นตัวแปรหลัก
+else: # บรรทัดนี้คือจุดเริ่มต้นเมื่อ Logged In แล้ว
+    # --- 1. ประกาศตัวแปร (ต้องย่อหน้าเข้ามา 1 ระดับ) ---
     role = st.session_state.role
     app_mode = st.session_state.app_mode
     nick = st.session_state.nick
-    
-    # กำหนดหน่วยตาม Mode (ช่วยให้การแสดงผลภาษาไทยดูเป็นธรรมชาติ)
     unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
 
-    # โหลดข้อมูลหลัก
+    # โหลดข้อมูล
     ws_main = ss.worksheet("sheet1")
-    df_all = get_df("sheet1")
+    df_all = get_df("sheet1"))
 
     # --- 4. SIDEBAR ---
     with st.sidebar:
@@ -348,7 +346,7 @@ else:
     # if role == "user": ...
     # elif role == "tech": ...
 if role == "user":
-    st.header(f"🚀 Repair Portal ({app_mode})")
+        st.header(f"🚀 Repair Portal ({app_mode})")
     
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
@@ -470,7 +468,7 @@ elif role == "tech":
         if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
             send_daily_summary(df_all, report_type)
 
-    st.header("🔧 Technician Workspace (Hybrid Mode)")
+    st.header("🔧 Technician Workspace")
     
     
     t_search, t_new_pcba, t_add_m = st.tabs([
