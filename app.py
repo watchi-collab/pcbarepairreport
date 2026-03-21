@@ -542,18 +542,7 @@ elif role in ["admin", "super admin"]:
             # Logic การดึงรูปภาพจาก Cloud/Drive ของคุณ
             st.info("แสดงรูปภาพจากทั้งระบบ PCBA และ Machine")
 
-        with tabs[3]: # Management (แก้ไข Data & User)
-            st.subheader("📝 Edit Raw Data (All Categories)")
-            # Admin สามารถแก้ได้ทุกบรรทัดในไฟล์เดียว
-            edited_df = st.data_editor(df_all_modes.tail(50), use_container_width=True)
-            
-            if role == "super admin":
-                st.divider()
-                st.subheader("🔑 User Management System")
-                # ส่วนนี้ใช้ Code การเพิ่ม/ลบ User ที่เราทำกันไว้ก่อนหน้า
-                # ... (ใส่ Code User Management ที่ให้ไปในข้อความก่อนหน้าตรงนี้) ...
- 
-
+        
         with tabs[3]:
             st.subheader("📝 Edit Raw Data")
             edited_df = st.data_editor(df_report.tail(50), use_container_width=True)
