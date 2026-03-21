@@ -346,7 +346,7 @@ else: # บรรทัดนี้คือจุดเริ่มต้นเ
     # if role == "user": ...
     # elif role == "tech": ...
 if role == "user":
- st.header(f"🚀 Repair Portal ({app_mode})")
+    st.header(f"🚀 Repair Portal ({app_mode})")
     
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
