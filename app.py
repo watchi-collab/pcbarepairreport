@@ -251,10 +251,8 @@ def send_daily_summary(df, app_mode):
 
 
 
-# --- 3. LOGIN (Fixed Indentation) ---
-if 'is_logged_in' not in st.session_state: 
-    st.session_state.is_logged_in = False
-
+# --- 3. LOGIN ---
+if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
     st.title("🛡️ Repair System Login")
     with st.form("login_form"):
@@ -270,14 +268,33 @@ if not st.session_state.is_logged_in:
                     "is_logged_in": True, 
                     "user": u, 
                     "role": role_val, 
-                    "active_role": role_val, 
+                    "active_role": role_val, # เพิ่มตัวแปรนี้เพื่อใช้สลับหน้าจอจริง
                     "nickname": match.iloc[0].get('nickname', u), 
                     "app_mode": mode
                 })
                 st.rerun()
-            else: 
-                st.error("ข้อมูลไม่ถูกต้อง")
+            else: st.error("ข้อมูลไม่ถูกต้อง")
     st.stop()
+
+# --- ส่วนจัดการสลับโหมด (วางไว้หลัง Login สำเร็จ) ---
+
+# ถ้าเป็น Tech หรือ Admin ให้โชว์ปุ่มสลับโหมดที่ Sidebar
+if st.session_state.role in ["tech", "admin", "super admin"]:
+    with st.sidebar:
+        st.subheader(f"👤 {st.session_state.nickname}")
+        st.write(f"สิทธิ์หลัก: {st.session_state.role.upper()}")
+        
+        # ใช้ radio หรือ selectbox สำหรับสลับโหมดการทำงาน
+        choice = st.radio(
+            "เลือกโหมดการใช้งาน:",
+            ["Tech Mode (ซ่อมงาน)", "User Mode (คีย์ข้อมูล)"],
+            index=0 if st.session_state.active_role == "tech" else 1,
+            horizontal=False
+        )
+        
+        # อัปเดต active_role ตามที่เลือก
+        st.session_state.active_role = "tech" if "Tech" in choice else "user"
+        st.divider()
 
 # --- 4. MAIN DATA LOAD ---
 ws_main = ss.worksheet("sheet1")
