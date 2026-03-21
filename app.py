@@ -251,13 +251,7 @@ def send_daily_summary(df, app_mode):
 
 
 
-# --- 1. INITIAL SESSION STATE ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-# --- 2. LOGIN PAGE ---
-if not st.session_state.logged_in:
-    st.container()
+f not st.session_state.logged_in:
     with st.columns([1, 2, 1])[1]: 
         st.title("🔐 Login System")
         st.subheader("PCBA & Machine Repair Service")
@@ -265,49 +259,53 @@ if not st.session_state.logged_in:
         with st.form("login_form"):
             user_input = st.text_input("👤 Username")
             pass_input = st.text_input("🔑 Password", type="password")
-            role_input = st.selectbox("👥 Role", ["user", "tech", "admin", "super admin"])
+            # ตัด role_input ออกเพื่อให้ระบบจัดการเอง
             mode_input = st.selectbox("⚙️ Mode", ["Machine", "PCBA"])
             
             submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
             
             if submit:
                 df_users = get_df("users")
-                # แปลง username เป็น string และลบช่องว่างเพื่อป้องกัน Error ในการค้นหา
                 df_users['username'] = df_users['username'].astype(str).str.strip()
                 
-                # 1. ค้นหาแถวที่มี username ตรงกับที่พิมพ์มา
+                # ค้นหา User
                 user_match = df_users[df_users['username'] == str(user_input).strip()]
                 
                 if not user_match.empty:
-                    # 2. กำหนดชื่อคอลัมน์ password ตาม role ที่เลือกจาก selectbox
-                    role_to_col = {
-                        "user": "password_user",
-                        "tech": "password_tech",
-                        "admin": "password_admin",
-                        "super admin": "password_super_admin"
-                    }
-                    password_column = role_to_col.get(role_input)
+                    row = user_match.iloc[0]
+                    found_role = None
                     
-                    # 3. ดึงค่า password จากคอลัมน์ที่ตรงกับ Role และเช็คว่าตรงกับที่กรอกไหม
-                    # (ใช้ .iloc[0] เพราะ username ควรจะเป็นค่า Unique)
-                    db_password = str(user_match.iloc[0][password_column]).strip()
+                    # ลำดับการตรวจสอบสิทธิ์ (Priority Check)
+                    # ระบบจะเช็คว่า Password ที่กรอกมา ตรงกับคอลัมน์ไหนในแถวนั้น
+                    role_priority = [
+                        ("super admin", "password_super_admin"),
+                        ("admin", "password_admin"),
+                        ("tech", "password_tech"),
+                        ("user", "password_user")
+                    ]
                     
-                    if db_password != "nan" and db_password == str(pass_input).strip():
-                        # Login สำเร็จ
+                    input_p = str(pass_input).strip()
+                    for role_name, col_name in role_priority:
+                        db_p = str(row[col_name]).strip()
+                        if db_p != "nan" and db_p != "" and db_p == input_p:
+                            found_role = role_name
+                            break # เจอ Role ที่ตรงกับ Password แล้วให้หยุดเช็ค
+                    
+                    if found_role:
                         st.session_state.logged_in = True
-                        st.session_state.role = role_input
+                        st.session_state.role = found_role
                         st.session_state.app_mode = mode_input
-                        st.session_state.nick = user_match.iloc[0]['nickname']
+                        st.session_state.nick = row['nickname']
                         
-                        st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} (Role: {role_input})")
+                        st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} สิทธิ์: {found_role}")
                         time.sleep(1)
                         st.rerun()
                     else:
-                        # Password ไม่ตรง หรือไม่มีสิทธิ์ใน Role นั้น (ค่าในตารางเป็นว่าง)
-                        st.error("❌ รหัสผ่านไม่ถูกต้องสำหรับสิทธิ์ (Role) นี้")
+                        st.error("❌ รหัสผ่านไม่ถูกต้อง หรือคุณไม่มีสิทธิ์เข้าใช้งาน")
                 else:
-                    # ไม่พบ Username ในระบบ
-                    st.error("❌ ไม่พบข้อมูลผู้ใช้งานในระบบ")
+                    st.error("❌ ไม่พบข้อมูลผู้ใช้งาน")
+
+
 # --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
 else: 
     # --- 1. ประกาศตัวแปร ---
