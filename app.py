@@ -251,35 +251,27 @@ def send_daily_summary(df, app_mode):
 
 
 
-# --- INITIAL SESSION STATE ---
+# --- 1. INITIAL SESSION STATE ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# --- 1. LOGIN PAGE ---
+# --- 2. LOGIN PAGE ---
 if not st.session_state.logged_in:
     st.container()
-    with st.columns([1, 2, 1])[1]:  # จัดหน้าให้อยู่ตรงกลาง
+    with st.columns([1, 2, 1])[1]: 
         st.title("🔐 Login System")
         st.subheader("PCBA & Machine Repair Service")
         
         with st.form("login_form"):
-            # ช่องกรอก Username และ Password
             user_input = st.text_input("👤 Username")
             pass_input = st.text_input("🔑 Password", type="password")
-            
-            # Dropdown เลือกสิทธิ์การใช้งาน
             role_input = st.selectbox("👥 Role", ["user", "tech", "admin", "super admin"])
-            
-            # Dropdown เลือกโหมดการทำงาน (Machine หรือ PCBA)
             mode_input = st.selectbox("⚙️ Mode", ["Machine", "PCBA"])
             
             submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
             
             if submit:
-                # ดึงข้อมูล User จาก Google Sheets มาตรวจสอบ
                 df_users = get_df("users")
-                
-                # ตรวจสอบ Username, Password และ Role ให้ตรงกัน
                 match = df_users[
                     (df_users['username'] == user_input) & 
                     (df_users['password'] == str(pass_input)) & 
@@ -287,61 +279,66 @@ if not st.session_state.logged_in:
                 ]
                 
                 if not match.empty:
-                    # เก็บค่าลง Session State เพื่อนำไปใช้ในหน้าหลัก
                     st.session_state.logged_in = True
                     st.session_state.role = role_input
                     st.session_state.app_mode = mode_input
                     st.session_state.nick = match.iloc[0]['nickname']
-                    
                     st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick}!")
                     time.sleep(1)
                     st.rerun()
                 else:
                     st.error("❌ ข้อมูลไม่ถูกต้อง หรือไม่มีสิทธิ์ใน Role นี้")
 
-# --- 4. MAIN DATA LOAD ---
-ws_main = ss.worksheet("sheet1")
-df_all = get_df("sheet1")
-role, app_mode = st.session_state.role, st.session_state.app_mode
-nick = st.session_state.nickname
-unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
+# --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
 else:
-    # ดึงค่าที่เลือกจากตอน Login มาใช้งาน
+    # ดึงค่าจาก Session มาใช้เป็นตัวแปรหลัก
     role = st.session_state.role
     app_mode = st.session_state.app_mode
     nick = st.session_state.nick
-
-# --- 5. SIDEBAR ---
-with st.sidebar:
-    st.title(f"👤 {nick}")
-    st.write(f"**Mode:** {app_mode} | **Role:** {role.upper()}")
-    st.divider()
     
-    st.subheader("📝 Quick Edit Status")
-    sn_edit_input = st.text_input("Scan SN to Edit").strip()
-    sn_edit = validate_sn(sn_edit_input)
-    if sn_edit:
-        edit_row = df_all[df_all['serial_number'] == sn_edit]
-        if not edit_row.empty:
-            with st.expander("Update Status", expanded=True):
-                current_stat = edit_row.iloc[-1]['status']
-                stat_options = ["Pending", "Wait Part", "Complete", "Scrap"]
-                idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
-                new_stat = st.selectbox("Status", stat_options, index=idx_stat)
-                if st.button("บันทึกการเปลี่ยนสถานะ"):
-                    r_idx = edit_row.index[-1] + 2
-                    ws_main.update_acell(f'B{r_idx}', new_stat)
-                    st.success("Updated!"); time.sleep(1); st.rerun()
-        else: st.warning("ไม่พบ SN")
-    
+    # กำหนดหน่วยตาม Mode (ช่วยให้การแสดงผลภาษาไทยดูเป็นธรรมชาติ)
+    unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
 
-    
-    st.divider()
-    # ปุ่มเดิมของคุณ
-        if st.sidebar.button("🚪 Log Out"):
-        st.session_state.logged_in = False
-        st.rerun()
+    # โหลดข้อมูลหลัก
+    ws_main = ss.worksheet("sheet1")
+    df_all = get_df("sheet1")
 
+    # --- 4. SIDEBAR ---
+    with st.sidebar:
+        st.title(f"👤 {nick}")
+        st.write(f"**Mode:** {app_mode} | **Role:** {role.upper()}")
+        st.divider()
+        
+        # ระบบ Quick Edit
+        st.subheader("📝 Quick Edit Status")
+        sn_edit_input = st.text_input("Scan SN to Edit Status", key="sb_sn_edit").strip()
+        if sn_edit_input:
+            sn_edit = validate_sn(sn_edit_input)
+            edit_row = df_all[df_all['serial_number'] == sn_edit]
+            
+            if not edit_row.empty:
+                with st.expander("Update Status", expanded=True):
+                    current_stat = edit_row.iloc[-1]['status']
+                    stat_options = ["Pending", "Wait Part", "Complete", "Scrap"]
+                    idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
+                    new_stat = st.selectbox("Status", stat_options, index=idx_stat)
+                    
+                    if st.button("บันทึกการเปลี่ยนสถานะ"):
+                        # +2 เพราะ Header แถว 1 และ Index ของ DF เริ่มที่ 0
+                        r_idx = edit_row.index[-1] + 2
+                        ws_main.update_acell(f'B{r_idx}', new_stat)
+                        st.success("อัปเดตสถานะสำเร็จ!"); time.sleep(1); st.rerun()
+            else:
+                st.warning("ไม่พบ SN นี้ในฐานข้อมูล")
+        
+        st.divider()
+        if st.button("🚪 Log Out", use_container_width=True):
+            st.session_state.logged_in = False
+            st.rerun()
+
+    # --- 5. แท็บการทำงานหลัก (ต่อจากนี้ให้ใส่ Code ของ Tech/User ที่คุณเขียนไว้) ---
+    # if role == "user": ...
+    # elif role == "tech": ...
 if role == "user":
     st.header(f"🚀 Repair Portal ({app_mode})")
     
