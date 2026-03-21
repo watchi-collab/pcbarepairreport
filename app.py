@@ -239,15 +239,18 @@ def send_daily_summary(df, app_mode):
     # ส่ง Machine แยกตามราย Station
     df_mac_data = df_report[df_report[cat_col] == "Machine"]
     if not df_mac_data.empty:
-        stations = df_mac_data['station'].unique()
+        stations = df_mac_data['work_name'].unique()
         for stn in stations:
             if not stn: continue
-            stn_data = df_mac_data[df_mac_data['station'] == stn]
+            stn_data = df_mac_data[df_mac_data['work_name'] == stn]
             stn_msg = build_report_format(stn_data, stn, "เครื่อง")
             if stn_msg:
                 send_line(stn_msg, to_summary=True)
 
     st.success("📢 รายงานถูกส่งเรียบร้อยแล้ว!")
+
+
+
         # --- 3. LOGIN ---
 if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
 if not st.session_state.is_logged_in:
@@ -657,7 +660,7 @@ elif role in ["admin", "super admin"]:
                 st.write("👥 **รายชื่อผู้ใช้ปัจจุบัน**")
                 # ตกแต่งหัวข้อตารางให้ดูง่าย
                 st.dataframe(
-                    df_u[['username', 'role', 'nickname', 'line_user_id']], 
+                    df_u[['username', 'role', 'nickname', 'password']], 
                     hide_index=True, 
                     use_container_width=True
                 )
@@ -668,7 +671,7 @@ elif role in ["admin", "super admin"]:
                     new_u = st.text_input("Username").strip()
                     new_p = st.text_input("Password", type="password").strip()
                     new_n = st.text_input("Nickname").strip()
-                    new_lid = st.text_input("Line User ID").strip()
+                    #new_lid = st.text_input("Line User ID").strip()
                     new_r = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
                     
                     if st.form_submit_button("บันทึกข้อมูล", use_container_width=True):
