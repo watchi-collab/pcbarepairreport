@@ -251,7 +251,7 @@ def send_daily_summary(df, app_mode):
 
 
 
-f not st.session_state.logged_in:
+if not st.session_state.logged_in:
     with st.columns([1, 2, 1])[1]: 
         st.title("🔐 Login System")
         st.subheader("PCBA & Machine Repair Service")
