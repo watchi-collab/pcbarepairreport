@@ -501,8 +501,8 @@ else:
                         ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
 
     # --- ROLE: ADMIN / SUPER ADMIN ---
-   elif role in ["admin", "super admin"]:
-        st.header(f"🏛️ Executive Dashboard (All Modes)")
+elif role in ["admin", "super admin"]:
+    st.header(f"🏛️ Executive Dashboard (All Modes)")
         
         # ดึงข้อมูลทั้งหมดโดยไม่สน app_mode เพื่อให้ Admin เห็นภาพรวม
         #
