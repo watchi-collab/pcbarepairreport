@@ -501,21 +501,48 @@ else:
                         ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
 
     # --- ROLE: ADMIN / SUPER ADMIN ---
-    elif role in ["admin", "super admin"]:
-        st.header(f"🏛️ Executive Dashboard: {app_mode}")
-        df_report = df_all[df_all['category'] == app_mode].copy()
+   elif role in ["admin", "super admin"]:
+        st.header(f"🏛️ Executive Dashboard (All Modes)")
         
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("งานทั้งหมด", f"{len(df_report)} {unit}")
-        m2.metric("Pending", len(df_report[df_report['status']=='Pending']))
-        m3.metric("Wait Part", len(df_report[df_report['status']=='Wait Part']))
-        m4.metric("Complete/Scrap", len(df_report[df_report['status'].isin(['Complete', 'Scrap'])]))
+        # ดึงข้อมูลทั้งหมดโดยไม่สน app_mode เพื่อให้ Admin เห็นภาพรวม
+        #
+        df_all_modes = df_all.copy() 
+        
+        # สถิติรวมทั้ง 2 ระบบ (PCBA & Machine)
+        c1, c2, c3, c4 = st.columns(4)
+        total_jobs = len(df_all_modes)
+        pending = len(df_all_modes[df_all_modes['status'] == 'Pending'])
+        wait_part = len(df_all_modes[df_all_modes['status'] == 'Wait Part'])
+        complete = len(df_all_modes[df_all_modes['status'].isin(['Complete', 'Scrap'])])
+        
+        c1.metric("งานรวมทั้งหมด", f"{total_jobs} รายการ")
+        c2.metric("⏳ Pending", pending)
+        c3.metric("🛠️ Wait Part", wait_part)
+        c4.metric("✅ Done/Scrap", complete)
 
-        tabs = st.tabs(["📅 รายงานวันนี้", "📊 รายสัปดาห์", "🖼️ Gallery", "🛠️ Management"])
-        with tabs[0]:
-            if st.button("📢 ส่งรายงานสรุปประจำวันเข้า LINE", use_container_width=True):
-                send_daily_summary(df_all, app_mode)
-            st.dataframe(df_report.tail(50), use_container_width=True)
+        # แยก Tab ตามประเภทงานและเมนูจัดการ
+        tabs = st.tabs(["💻 PCBA Works", "🏗️ Machine Works", "🖼️ Gallery", "⚙️ Management"])
+        
+        with tabs[0]: # PCBA Mode
+            st.subheader("รายการงาน PCBA")
+            df_pcba = df_all_modes[df_all_modes['category'] == 'PCBA']
+            st.dataframe(df_pcba.tail(100), use_container_width=True)
+            if st.button("📊 สรุป PCBA ลง LINE", key="line_pcba"):
+                send_daily_summary(df_all_modes, "PCBA")
+
+        with tabs[1]: # Machine Mode
+            st.subheader("รายการงาน Machine")
+            df_machine = df_all_modes[df_all_modes['category'] == 'Machine']
+            st.dataframe(df_machine.tail(100), use_container_width=True)
+            if st.button("📊 สรุป Machine ลง LINE", key="line_machine"):
+                send_daily_summary(df_all_modes, "Machine")
+
+        with tabs[2]: # Gallery (รวมทุกอย่าง)
+            st.subheader("คลังรูปภาพงานซ่อมทั้งหมด")
+            # Logic การดึงรูปภาพจาก Cloud/Drive ของคุณ
+            st.info("แสดงรูปภาพจากทั้งระบบ PCBA และ Machine")
+
+ 
 
         with tabs[3]:
             st.subheader("📝 Edit Raw Data")
