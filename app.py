@@ -307,7 +307,7 @@ else: # บรรทัดนี้คือจุดเริ่มต้นเ
 
     # โหลดข้อมูล
     ws_main = ss.worksheet("sheet1")
-    df_all = get_df("sheet1"))
+    df_all = get_df("sheet1")
 
     # --- 4. SIDEBAR ---
     with st.sidebar:
