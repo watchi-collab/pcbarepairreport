@@ -251,50 +251,53 @@ def send_daily_summary(df, app_mode):
 
 
 
-# --- 3. LOGIN ---
-if 'is_logged_in' not in st.session_state: st.session_state.is_logged_in = False
-if not st.session_state.is_logged_in:
-    st.title("🛡️ Repair System Login")
-    with st.form("login_form"):
-        u = st.text_input("Username").strip()
-        p = st.text_input("Password", type="password").strip()
-        mode = st.selectbox("โหมดการทำงาน", ["PCBA", "Machine"])
-        if st.form_submit_button("เข้าสู่ระบบ", use_container_width=True):
-            df_u = get_df("users")
-            match = df_u[(df_u['username'].astype(str)==u) & (df_u['password'].astype(str)==p)]
-            if not match.empty:
-                role_val = str(match.iloc[0]['role']).lower()
-                st.session_state.update({
-                    "is_logged_in": True, 
-                    "user": u, 
-                    "role": role_val, 
-                    "active_role": role_val, # เพิ่มตัวแปรนี้เพื่อใช้สลับหน้าจอจริง
-                    "nickname": match.iloc[0].get('nickname', u), 
-                    "app_mode": mode
-                })
-                st.rerun()
-            else: st.error("ข้อมูลไม่ถูกต้อง")
-    st.stop()
+# --- INITIAL SESSION STATE ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# --- ส่วนจัดการสลับโหมด (วางไว้หลัง Login สำเร็จ) ---
-
-# ถ้าเป็น Tech หรือ Admin ให้โชว์ปุ่มสลับโหมดที่ Sidebar
-if st.session_state.role in ["tech", "admin", "super admin"]:
-    with st.sidebar:
-        st.subheader(f"👤 {st.session_state.nickname}")
-        st.write(f"สิทธิ์หลัก: {st.session_state.role.upper()}")
+# --- 1. LOGIN PAGE ---
+if not st.session_state.logged_in:
+    st.container()
+    with st.columns([1, 2, 1])[1]:  # จัดหน้าให้อยู่ตรงกลาง
+        st.title("🔐 Login System")
+        st.subheader("PCBA & Machine Repair Service")
         
-        # ใช้ radio หรือ selectbox สำหรับสลับโหมดการทำงาน
-        choice = st.radio(
-            "เลือกโหมดการใช้งาน:",
-            ["Tech Mode (ซ่อมงาน)", "User Mode (คีย์ข้อมูล)"],
-            index=0 if st.session_state.active_role == "tech" else 1,
-            horizontal=False
-        )
-        
-        # อัปเดต active_role ตามที่เลือก
-        st.session_state.active_role = "tech" if "Tech" in choice else "user"
-        st.divider()
+        with st.form("login_form"):
+            # ช่องกรอก Username และ Password
+            user_input = st.text_input("👤 Username")
+            pass_input = st.text_input("🔑 Password", type="password")
+            
+            # Dropdown เลือกสิทธิ์การใช้งาน
+            role_input = st.selectbox("👥 Role", ["user", "tech", "admin", "super admin"])
+            
+            # Dropdown เลือกโหมดการทำงาน (Machine หรือ PCBA)
+            mode_input = st.selectbox("⚙️ Mode", ["Machine", "PCBA"])
+            
+            submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
+            
+            if submit:
+                # ดึงข้อมูล User จาก Google Sheets มาตรวจสอบ
+                df_users = get_df("users")
+                
+                # ตรวจสอบ Username, Password และ Role ให้ตรงกัน
+                match = df_users[
+                    (df_users['username'] == user_input) & 
+                    (df_users['password'] == str(pass_input)) & 
+                    (df_users['role'] == role_input)
+                ]
+                
+                if not match.empty:
+                    # เก็บค่าลง Session State เพื่อนำไปใช้ในหน้าหลัก
+                    st.session_state.logged_in = True
+                    st.session_state.role = role_input
+                    st.session_state.app_mode = mode_input
+                    st.session_state.nick = match.iloc[0]['nickname']
+                    
+                    st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick}!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ ข้อมูลไม่ถูกต้อง หรือไม่มีสิทธิ์ใน Role นี้")
 
 # --- 4. MAIN DATA LOAD ---
 ws_main = ss.worksheet("sheet1")
@@ -302,6 +305,11 @@ df_all = get_df("sheet1")
 role, app_mode = st.session_state.role, st.session_state.app_mode
 nick = st.session_state.nickname
 unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
+else:
+    # ดึงค่าที่เลือกจากตอน Login มาใช้งาน
+    role = st.session_state.role
+    app_mode = st.session_state.app_mode
+    nick = st.session_state.nick
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
@@ -330,8 +338,8 @@ with st.sidebar:
     
     st.divider()
     # ปุ่มเดิมของคุณ
-    if st.button("🚪 ออกจากระบบ", use_container_width=True):
-        st.session_state.is_logged_in = False
+        if st.sidebar.button("🚪 Log Out"):
+        st.session_state.logged_in = False
         st.rerun()
 
 if role == "user":
