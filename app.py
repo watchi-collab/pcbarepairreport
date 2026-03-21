@@ -442,7 +442,12 @@ elif role == "tech":
 
     st.header("🔧 Technician Workspace (Hybrid Mode)")
     
-    t_search, t_new_pcba = st.tabs(["🔍 วิเคราะห์/แก้ไขงานซ่อม", "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)"])
+    
+    t_search, t_new_pcba, t_add_m = st.tabs([
+        "🔍 วิเคราะห์/แก้ไขงานซ่อม", 
+        "📦 ส่งซ่อม PCBA (จากหน้างาน Machine)", 
+        "⚙️ เพิ่ม Master Data"
+    ])
 
     with t_search:
         sn_scan = st.text_input("🔍 Scan SN (ได้ทั้ง PCBA & Machine)", key="tech_sn_input").strip()
