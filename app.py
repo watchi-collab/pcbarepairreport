@@ -381,18 +381,19 @@ if role == "user":
 
     # --- Tab 3: ลงทะเบียน Model (ส่วนที่เพิ่มใหม่) ---
     # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
+    # --- Tab 3: ลงทะเบียน Model (สำหรับ User) ---
     with t3:
         st.subheader(f"➕ ลงทะเบียน Model ใหม่ ({app_mode})")
         
         with st.form("user_add_new_model_form"):
-            # ส่วนของ PCBA (คงเดิมตามโครงสร้าง model_mat)
             if app_mode == "PCBA":
                 u_new_m = st.text_input("PCBA Model Name").strip()
                 u_new_p = st.text_input("Product Name").strip()
                 
                 if st.form_submit_button("บันทึกข้อมูล PCBA"):
                     if u_new_m and u_new_p:
-                        ws_master = sh.worksheet("model_mat")
+                        # เปลี่ยนจาก sh เป็น ss ให้ตรงกับตัวแปรต้นฉบับของคุณ
+                        ws_master = ss.worksheet("model_mat")
                         ws_master.append_row([u_new_m, u_new_p])
                         st.success(f"✅ บันทึก PCBA Model: {u_new_m} เรียบร้อย!")
                         time.sleep(1.5)
@@ -400,28 +401,26 @@ if role == "user":
                     else:
                         st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
 
-            # ส่วนของ Machine (ปรับตามที่คุณต้องการ: ให้กรอกเองทั้ง 3 ช่อง)
-            else:
+            else:  # โหมด Machine: เพิ่มแบบ 3 ช่องตามที่ต้องการ
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
                     u_m_model = st.text_input("Model Machine (Text)").strip()
                     u_m_product = st.text_input("Product Name (Text)").strip()
                 with col_u2:
-                    # เพิ่มช่อง Work Name ให้ User กรอกเองตามโจทย์
                     u_m_work = st.text_input("Work Name (เช่น String หรือ PCS)").strip()
                 
                 if st.form_submit_button("บันทึกข้อมูล Machine"):
                     if u_m_model and u_m_product and u_m_work:
                         with st.spinner("กำลังบันทึกข้อมูล..."):
-                            ws_master = sh.worksheet("model_machine")
-                            # บันทึก 3 คอลัมน์ตามที่ User กรอกมา: model, product_name, work_name
+                            # เปลี่ยนจาก sh เป็น ss
+                            ws_master = ss.worksheet("model_machine")
                             ws_master.append_row([u_m_model, u_m_product, u_m_work])
                             
                         st.success(f"✅ บันทึก Model: {u_m_model} | Work: {u_m_work} เรียบร้อย!")
                         time.sleep(1.5)
                         st.rerun()
                     else:
-                        st.error("⚠️ กรุณากรอกข้อมูล Model, Product และ Work Name ให้ครบถ้วน")
+                        st.error("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
                     
 # --- ROLE: TECH (Hybrid & Cross-Repair Support) ---
 elif role == "tech":
@@ -578,6 +577,27 @@ elif role == "tech":
                         st.rerun()
                 else:
                     st.error("กรุณากรอกข้อมูลให้ครบถ้วน (เลือก Model, SN และอาการเสีย)")
+
+    with t_add_m:
+            st.subheader(f"⚙️ เพิ่ม Master Data ({app_mode})")
+            with st.form("tech_add_model_form"):
+                if app_mode == "Machine":
+                    c1, c2 = st.columns(2)
+                    t_m = c1.text_input("Model Name").strip()
+                    t_p = c1.text_input("Product Name").strip()
+                    t_w = c2.text_input("Work Name (เช่น String/PCS)").strip()
+                    
+                    if st.form_submit_button("🚀 บันทึก Machine Model (Tech Mode)"):
+                        if t_m and t_p and t_w:
+                            ss.worksheet("model_machine").append_row([t_m, t_p, t_w])
+                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                else:
+                    t_m = st.text_input("PCBA Model Name").strip()
+                    t_p = st.text_input("Product Name").strip()
+                    if st.form_submit_button("🚀 บันทึก PCBA Model"):
+                        if t_m and t_p:
+                            ss.worksheet("model_mat").append_row([t_m, t_p])
+                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
 
 # --- ROLE: ADMIN / SUPER ADMIN ---
 elif role in ["admin", "super admin"]:
