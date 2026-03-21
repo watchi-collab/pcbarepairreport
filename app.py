@@ -506,7 +506,7 @@ elif role in ["admin", "super admin"]:
         
         # ดึงข้อมูลทั้งหมดโดยไม่สน app_mode เพื่อให้ Admin เห็นภาพรวม
         #
-        df_all_modes = df_all.copy() 
+    df_all_modes = df_all.copy() 
         
         # สถิติรวมทั้ง 2 ระบบ (PCBA & Machine)
         c1, c2, c3, c4 = st.columns(4)
