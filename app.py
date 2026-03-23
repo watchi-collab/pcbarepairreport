@@ -465,6 +465,7 @@ if role == "user":
                             st.success("✅ ลงทะเบียน Machine สำเร็จ")
                             time.sleep(1); st.rerun()  
 elif role == "tech":
+        
         with st.sidebar:
             st.markdown("---")
             st.subheader("📊 Reporting System")
@@ -551,7 +552,7 @@ elif role == "tech":
                         ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
                         
 elif role in ["admin", "super admin"]:
-        st.header(f"🏛️ Executive Dashboard (All Modes)")
+        st.header(f"🏛️ Executive Dashboard")
         
         df_all_modes = df_all.copy() 
         
