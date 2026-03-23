@@ -399,7 +399,13 @@ if role == "user":
                 sn_input = c1.text_input("Serial Number", key="sn_field").strip()
                 
                 wo = c2.text_input("Work Order").strip().upper()
-                stat = c2.selectbox("Station", [""] + df_st['station'].tolist())
+                stn_options = [""]
+                if not df_st.empty and 'station' in df_st.columns:
+                    stn_options += df_st['station'].tolist()
+                else:
+                    st.error("❌ ไม่พบคอลัมน์ 'station' ในแผ่นงาน station_dropdowns")
+
+                stat = c2.selectbox("Station", stn_options)
                 fail_th = c2.text_area("อาการเสีย (Problem Description)")
                 
                 u_imgs = st.file_uploader("📸 แนบรูปภาพ", accept_multiple_files=True, key=f"user_upload_{st.session_state.uploader_key}")
