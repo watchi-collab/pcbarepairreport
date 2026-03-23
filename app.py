@@ -66,11 +66,12 @@ def get_df(name):
     try:
         ws = ss.worksheet(name)
         data = ws.get_all_records()
-        if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
+        # บังคับให้หัวตารางเป็นตัวเล็กและไม่มีช่องว่าง
         df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
         return df.fillna("")
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def translate_to_en(text):
     if not text: return ""
@@ -379,7 +380,10 @@ else:
             
             with st.form("req_form", clear_on_submit=False):
                 c1, c2 = st.columns(2)
-                sel_m = c1.selectbox("Model", [""] + df_m['model'].unique().tolist())
+                model_options = [""]
+                if not df_m.empty and 'model' in df_m.columns:
+                model_options += df_m['model'].unique().tolist()
+                sel_m = c1.selectbox("Model", model_options)
                 p_val = df_m[df_m['model']==sel_m]['product_name'].values[0] if sel_m else ""
                 c1.text_input("Product", value=p_val, disabled=True)
                 sn_input = c1.text_input("Serial Number", key="sn_field").strip()
@@ -395,6 +399,9 @@ else:
                         st.error(f"❌ รูปแบบ SN ไม่ถูกต้อง")
                     elif sel_m and sn_input and wo and stat:
                         with st.spinner("กำลังบันทึก..."):
+                            urls = ""
+                            if u_imgs:
+                            urls = upload_images(u_imgs, "REQ", sn)
                             sn = validate_sn(sn_input)
                             fail_en = translate_to_en(fail_th)
                             urls = upload_images(u_imgs, "REQ", sn)
@@ -427,7 +434,9 @@ else:
                     if st.form_submit_button("บันทึกข้อมูล Machine"):
                         if u_m_model and u_m_product and u_m_work:
                             ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
-                            st.success("✅ บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+                            st.session_state.uploader_key += 1 
+                            st.success("บันทึกสำเร็จ")
+                            st.rerun()
 
     elif role == "tech":
         with st.sidebar:
