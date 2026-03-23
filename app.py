@@ -104,23 +104,38 @@ def send_line(msg, image_url=None, to_summary=False):
     target_id = GROUP_ID_SUMMARY if to_summary else GROUP_ID_REPAIR
     
     if not token: 
-        st.error("❌ ไม่พบ Line Channel Access Token")
-        return
+        st.error("❌ ไม่พบ Line Channel Access Token ใน Secrets")
+        return None
     
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+    headers = {
+        "Content-Type": "application/json", 
+        "Authorization": f"Bearer {token}"
+    }
+    
     messages = [{"type": "text", "text": msg}]
     
     if image_url:
+        # ดึง URL รูปแรก และตรวจสอบว่าเป็น https หรือไม่ (Line บังคับ https)
         first_img = image_url.split(',')[0].strip()
-        if first_img.startswith("http"):
-            messages.append({"type": "image", "originalContentUrl": first_img, "previewImageUrl": first_img})
+        if first_img.startswith("https"):
+            messages.append({
+                "type": "image", 
+                "originalContentUrl": first_img, 
+                "previewImageUrl": first_img
+            })
         
     payload = {"to": target_id, "messages": messages}
+    
     try:
         response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            # แสดง Error บนหน้าจอเพื่อการ Debug
+            st.warning(f"⚠️ LINE API Error {response.status_code}: {response.text}")
         return response.status_code
-    except: return None
+    except Exception as e:
+        st.error(f"❌ Connection Error: {e}")
+        return None
 
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
