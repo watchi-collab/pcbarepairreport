@@ -366,7 +366,7 @@ else:
             st.rerun()
 
 # --- 5. แท็บการทำงานหลักแยกตาม Role ---
-   if role == "user":
+if role == "user":
         st.header(f"🚀 Repair Portal ({app_mode})")
         
         if "uploader_key" not in st.session_state:
