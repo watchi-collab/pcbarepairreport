@@ -385,7 +385,6 @@ if role == "user":
             with st.form("req_form", clear_on_submit=False):
                 c1, c2 = st.columns(2)
                 
-                # Model Selection
                 model_options = [""]
                 if not df_m.empty and 'model' in df_m.columns:
                     model_options += df_m['model'].unique().tolist()
@@ -398,13 +397,10 @@ if role == "user":
                 
                 c1.text_input("Product", value=p_val, disabled=True)
                 sn_input = c1.text_input("Serial Number", key="sn_field").strip()
-                
                 wo = c2.text_input("Work Order").strip().upper()
                 
-                # Station Selection (Fixed logic)
                 stn_options = [""]
                 if not df_st.empty:
-                    # ถ้าหาคอลัมน์ 'station' ไม่เจอ ให้ดึงคอลัมน์แรกมาใช้แทน
                     target_col = 'station' if 'station' in df_st.columns else df_st.columns[0]
                     stn_options += df_st[target_col].tolist()
                 
@@ -412,7 +408,6 @@ if role == "user":
                 fail_th = c2.text_area("อาการเสีย (Problem Description)")
                 u_imgs = st.file_uploader("📸 แนบรูปภาพ", accept_multiple_files=True, key=f"user_upload_{st.session_state.uploader_key}")
                 
-                # ปุ่ม Submit ต้องอยู่ใน with st.form
                 if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
                     if not re.match(r'^[a-zA-Z0-9-]+$', sn_input):
                         st.error("❌ รูปแบบ SN ไม่ถูกต้อง")
@@ -423,15 +418,13 @@ if role == "user":
                             sn = validate_sn(sn_input)
                             fail_en = translate_to_en(fail_th)
                             urls = upload_images(u_imgs, "REQ", sn) if u_imgs else ""
-                            
-                            new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), 
-                                       "", "", "", "", "", "", urls]
+                            new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
                             ws_main.append_row(new_row)
-                            
                             send_line(f"🚨 *New Job* ({app_mode})\nSN: {sn}\nModel: {sel_m}\nBy: {nick}", image_url=urls)
                             st.session_state.uploader_key += 1 
                             st.success("✅ บันทึกสำเร็จ!")
                             time.sleep(1); st.rerun()
+
         with t2:
             st.subheader("🔍 ติดตามสถานะงานซ่อม")
             search_sn = st.text_input("ป้อน Serial Number เพื่อค้นหา").strip()
@@ -447,23 +440,20 @@ if role == "user":
             st.subheader(f"📋 ลงทะเบียน Model ใหม่ ({app_mode})")
             with st.form("user_add_new_model_form"):
                 if app_mode == "PCBA":
-                    u_new_m = st.text_input("PCBA Model Name (เช่น บอร์ดควบคุม)").strip()
-                    u_new_p = st.text_input("Product Name (เช่น เครื่องซักผ้า)").strip()
+                    u_new_m = st.text_input("PCBA Model Name").strip()
+                    u_new_p = st.text_input("Product Name").strip()
                     if st.form_submit_button("บันทึกข้อมูล PCBA"):
                         if u_new_m and u_new_p:
                             ss.worksheet("model_mat").append_row([u_new_m, u_new_p])
-                            st.success("✅ ลงทะเบียน Model สำเร็จ")
-                            time.sleep(1); st.rerun()
+                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun()
                 else:
-                    col_u1, col_u2 = st.columns(2)
-                    u_m_model = col_u1.text_input("Model Machine").strip()
-                    u_m_product = col_u1.text_input("Product Name").strip()
-                    u_m_work = col_u2.text_input("Station / Work Name").strip()
+                    u_m_model = st.text_input("Model Machine").strip()
+                    u_m_product = st.text_input("Product Name").strip()
+                    u_m_work = st.text_input("Station / Work Name").strip()
                     if st.form_submit_button("บันทึกข้อมูล Machine"):
                         if u_m_model and u_m_product and u_m_work:
                             ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
-                            st.success("✅ ลงทะเบียน Machine สำเร็จ")
-                            time.sleep(1); st.rerun()  
+                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun(
 elif role == "tech":
         
         with st.sidebar:
