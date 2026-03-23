@@ -251,59 +251,74 @@ def send_daily_summary(df, app_mode):
 
 
 
+# --- ส่วนนี้ควรอยู่ด้านบนสุดของไฟล์ ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.role = None
+    st.session_state.nick = None
+    st.session_state.app_mode = None
+
+# --- ส่วนของ Login UI ---
 if not st.session_state.logged_in:
-    with st.columns([1, 2, 1])[1]: 
+    _, center_col, _ = st.columns([1, 2, 1])
+    
+    with center_col:
         st.title("🔐 Login System")
         st.subheader("PCBA & Machine Repair Service")
         
         with st.form("login_form"):
-            user_input = st.text_input("👤 Username")
-            pass_input = st.text_input("🔑 Password", type="password")
-            # ตัด role_input ออกเพื่อให้ระบบจัดการเอง
+            user_input = st.text_input("👤 Username").strip()
+            pass_input = st.text_input("🔑 Password", type="password").strip()
             mode_input = st.selectbox("⚙️ Mode", ["Machine", "PCBA"])
-            
             submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
             
             if submit:
-                df_users = get_df("users")
-                df_users['username'] = df_users['username'].astype(str).str.strip()
-                
-                # ค้นหา User
-                user_match = df_users[df_users['username'] == str(user_input).strip()]
-                
-                if not user_match.empty:
-                    row = user_match.iloc[0]
-                    found_role = None
-                    
-                    # ลำดับการตรวจสอบสิทธิ์ (Priority Check)
-                    # ระบบจะเช็คว่า Password ที่กรอกมา ตรงกับคอลัมน์ไหนในแถวนั้น
-                    role_priority = [
-                        ("super admin", "password_super_admin"),
-                        ("admin", "password_admin"),
-                        ("tech", "password_tech"),
-                        ("user", "password_user")
-                    ]
-                    
-                    input_p = str(pass_input).strip()
-                    for role_name, col_name in role_priority:
-                        db_p = str(row[col_name]).strip()
-                        if db_p != "nan" and db_p != "" and db_p == input_p:
-                            found_role = role_name
-                            break # เจอ Role ที่ตรงกับ Password แล้วให้หยุดเช็ค
-                    
-                    if found_role:
-                        st.session_state.logged_in = True
-                        st.session_state.role = found_role
-                        st.session_state.app_mode = mode_input
-                        st.session_state.nick = row['nickname']
-                        
-                        st.success(f"ยินดีต้อนรับคุณ {st.session_state.nick} สิทธิ์: {found_role}")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("❌ รหัสผ่านไม่ถูกต้อง หรือคุณไม่มีสิทธิ์เข้าใช้งาน")
+                if not user_input or not pass_input:
+                    st.warning("⚠️ กรุณากรอกทั้ง Username และ Password")
                 else:
-                    st.error("❌ ไม่พบข้อมูลผู้ใช้งาน")
+                    df_users = get_df("users")
+                    if not df_users.empty:
+                        # ทำความสะอาดข้อมูลใน DataFrame
+                        df_users['username'] = df_users['username'].astype(str).str.strip()
+                        
+                        # ค้นหา User (Case-sensitive)
+                        user_match = df_users[df_users['username'] == user_input]
+                        
+                        if not user_match.empty:
+                            row = user_match.iloc[0]
+                            found_role = None
+                            
+                            # ตรวจสอบสิทธิ์ตามลำดับความสำคัญ
+                            role_priority = [
+                                ("super admin", "password_super_admin"),
+                                ("admin", "password_admin"),
+                                ("tech", "password_tech"),
+                                ("user", "password_user")
+                            ]
+                            
+                            for role_name, col_name in role_priority:
+                                # ดึงค่าจาก DB และจัดการพวกค่าว่าง/NaN
+                                db_p = str(row.get(col_name, "")).strip()
+                                if db_p and db_p != "nan" and db_p == pass_input:
+                                    found_role = role_name
+                                    break
+                            
+                            if found_role:
+                                # บันทึกสถานะลง Session
+                                st.session_state.logged_in = True
+                                st.session_state.role = found_role
+                                st.session_state.app_mode = mode_input
+                                st.session_state.nick = row.get('nickname', user_input)
+                                
+                                st.success(f"✅ ยินดีต้อนรับคุณ {st.session_state.nick} (สิทธิ์: {found_role})")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("❌ รหัสผ่านไม่ถูกต้องสำหรับสิทธิ์ใดๆ")
+                        else:
+                            st.error("❌ ไม่พบชื่อผู้ใช้งานนี้ในระบบ")
+                    else:
+                        st.error("❌ ไม่สามารถดึงข้อมูลผู้ใช้งานได้ (Database Empty)")
 
 
 # --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
