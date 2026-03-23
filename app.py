@@ -330,9 +330,13 @@ else:
     nick = st.session_state.nick
     unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
 
-    # โหลดข้อมูล
-    ws_main = ss.worksheet("sheet1")
-    df_all = get_df("sheet1")
+    # โหลดข้อมูลหลัก (ตรวจสอบชื่อ Tab ให้ตรงกับใน Google Sheets)
+    try:
+        ws_main = ss.worksheet("sheet1")
+        df_all = get_df("sheet1")
+    except Exception as e:
+        st.error(f"❌ ไม่สามารถเข้าถึงหน้า 'sheet1' ได้: {e}")
+        st.stop()
 
     # --- 4. SIDEBAR ---
     with st.sidebar:
@@ -365,8 +369,8 @@ else:
             st.session_state.logged_in = False
             st.rerun()
 
-# --- 5. แท็บการทำงานหลักแยกตาม Role ---
-if role == "user":
+    # --- 5. แท็บการทำงานหลักแยกตาม Role (Check Indentation Here) ---
+    if role == "user":
         st.header(f"🚀 Repair Portal ({app_mode})")
         
         if "uploader_key" not in st.session_state:
@@ -375,21 +379,18 @@ if role == "user":
         t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม", "📋 ลงทะเบียน Model"])
         
         with t1:
-            # ดึงข้อมูล Dropdown
             df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
             df_st = get_df("station_dropdowns")
             
             with st.form("req_form", clear_on_submit=False):
                 c1, c2 = st.columns(2)
                 
-                # จัดการ Model Options ป้องกัน Error กรณีตารางว่าง
+                # Model Selection
                 model_options = [""]
                 if not df_m.empty and 'model' in df_m.columns:
                     model_options += df_m['model'].unique().tolist()
-                
                 sel_m = c1.selectbox("Model", model_options)
                 
-                # ดึง Product Name อัตโนมัติ
                 p_val = ""
                 if sel_m and not df_m.empty:
                     match = df_m[df_m['model'] == sel_m]['product_name']
@@ -399,52 +400,38 @@ if role == "user":
                 sn_input = c1.text_input("Serial Number", key="sn_field").strip()
                 
                 wo = c2.text_input("Work Order").strip().upper()
+                
+                # Station Selection (Fixed logic)
                 stn_options = [""]
-                if not df_st.empty and 'station' in df_st.columns:
-                    stn_options += df_st['station'].tolist()
-                else:
-                    st.error("❌ ไม่พบคอลัมน์ 'station' ในแผ่นงาน station_dropdowns")
-
+                if not df_st.empty:
+                    # ถ้าหาคอลัมน์ 'station' ไม่เจอ ให้ดึงคอลัมน์แรกมาใช้แทน
+                    target_col = 'station' if 'station' in df_st.columns else df_st.columns[0]
+                    stn_options += df_st[target_col].tolist()
+                
                 stat = c2.selectbox("Station", stn_options)
                 fail_th = c2.text_area("อาการเสีย (Problem Description)")
-                
                 u_imgs = st.file_uploader("📸 แนบรูปภาพ", accept_multiple_files=True, key=f"user_upload_{st.session_state.uploader_key}")
                 
+                # ปุ่ม Submit ต้องอยู่ใน with st.form
                 if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
-                    # 1. Validation เบื้องต้น
-                    if not re.match(r'^[a-zA-Z0-9-]+$', sn_input): # อนุญาตให้มีขีดได้ถ้าจำเป็น
-                        st.error("❌ รูปแบบ SN ไม่ถูกต้อง (ใช้อักษรและตัวเลขเท่านั้น)")
+                    if not re.match(r'^[a-zA-Z0-9-]+$', sn_input):
+                        st.error("❌ รูปแบบ SN ไม่ถูกต้อง")
                     elif not (sel_m and sn_input and wo and stat):
                         st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
                     else:
-                        with st.spinner("กำลังบันทึกข้อมูลและอัปโหลดรูปภาพ..."):
-                            try:
-                                # 2. เตรียมข้อมูล (ย้ายมาไว้ก่อนอัปโหลดรูป)
-                                sn = validate_sn(sn_input)
-                                fail_en = translate_to_en(fail_th)
-                                
-                                # 3. อัปโหลดรูปภาพ (เรียกใช้ครั้งเดียว)
-                                urls = ""
-                                if u_imgs:
-                                    urls = upload_images(u_imgs, "REQ", sn)
-                                
-                                # 4. บันทึกลง Google Sheets
-                                # ลำดับ: Category, Status, WO, Model, Product, SN, Station, Problem, Time, ..., Image
-                                new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), 
-                                           "", "", "", "", "", "", urls]
-                                ws_main.append_row(new_row)
-                                
-                                # 5. ส่งการแจ้งเตือน LINE
-                                send_line(f"🚨 *New Job* ({app_mode})\nSN: {sn}\nModel: {sel_m}\nStation: {stat}\nBy: {nick}", image_url=urls)
-                                
-                                # 6. Success & Reset
-                                st.session_state.uploader_key += 1 # ล้างรูปภาพใน uploader
-                                st.success("✅ บันทึกข้อมูลสำเร็จ!")
-                                time.sleep(1.5)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"เกิดข้อผิดพลาด: {e}")
-
+                        with st.spinner("กำลังบันทึก..."):
+                            sn = validate_sn(sn_input)
+                            fail_en = translate_to_en(fail_th)
+                            urls = upload_images(u_imgs, "REQ", sn) if u_imgs else ""
+                            
+                            new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), 
+                                       "", "", "", "", "", "", urls]
+                            ws_main.append_row(new_row)
+                            
+                            send_line(f"🚨 *New Job* ({app_mode})\nSN: {sn}\nModel: {sel_m}\nBy: {nick}", image_url=urls)
+                            st.session_state.uploader_key += 1 
+                            st.success("✅ บันทึกสำเร็จ!")
+                            time.sleep(1); st.rerun()
         with t2:
             st.subheader("🔍 ติดตามสถานะงานซ่อม")
             search_sn = st.text_input("ป้อน Serial Number เพื่อค้นหา").strip()
