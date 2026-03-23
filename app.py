@@ -471,7 +471,7 @@ if role == "user":
                             ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
                             st.success("✅ ลงทะเบียน Machine สำเร็จ")
                             time.sleep(1); st.rerun()
-    elif role == "tech":
+elif role == "tech":
         with st.sidebar:
             st.markdown("---")
             st.subheader("📊 Reporting System")
@@ -556,8 +556,8 @@ if role == "user":
                 else:
                     if st.form_submit_button("บันทึก PCBA"):
                         ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
-
-    elif role in ["admin", "super admin"]:
+                        
+elif role in ["admin", "super admin"]:
         st.header(f"🏛️ Executive Dashboard (All Modes)")
         
         df_all_modes = df_all.copy() 
