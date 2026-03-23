@@ -453,7 +453,7 @@ if role == "user":
                     if st.form_submit_button("บันทึกข้อมูล Machine"):
                         if u_m_model and u_m_product and u_m_work:
                             ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
-                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun(
+                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun()
 elif role == "tech":
         
         with st.sidebar:
