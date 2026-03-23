@@ -67,7 +67,6 @@ def get_df(name):
         ws = ss.worksheet(name)
         data = ws.get_all_records()
         df = pd.DataFrame(data)
-        # บังคับให้หัวตารางเป็นตัวเล็กและไม่มีช่องว่าง
         df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
         return df.fillna("")
     except:
@@ -99,53 +98,30 @@ def upload_images(files, prefix, sn):
     return ",".join(urls)
 
 def send_line(msg, image_url=None, to_summary=False):
-    # ดึงค่าจาก st.secrets
     token = st.secrets.get("line_channel_access_token") 
-    
-    # กำหนด Group ID ตามเงื่อนไข
-    GROUP_ID_REPAIR = "C54883d9bd6b1293ff2bad0ba497a80d7"  # กลุ่มแจ้งซ่อมเดิม
-    GROUP_ID_SUMMARY = "Ce5d4d803cd538c97b007d75cb406306c" # กลุ่มส่งรายงานใหม่
-    
-    # เลือกกลุ่มเป้าหมาย
+    GROUP_ID_REPAIR = "C54883d9bd6b1293ff2bad0ba497a80d7" 
+    GROUP_ID_SUMMARY = "Ce5d4d803cd538c97b007d75cb406306c"
     target_id = GROUP_ID_SUMMARY if to_summary else GROUP_ID_REPAIR
     
     if not token: 
-        st.error("❌ ไม่พบ Line Channel Access Token ใน Secrets")
+        st.error("❌ ไม่พบ Line Channel Access Token")
         return
     
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {
-        "Content-Type": "application/json", 
-        "Authorization": f"Bearer {token}"
-    }
-    
-    # เตรียมข้อความหลัก
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     messages = [{"type": "text", "text": msg}]
     
-    # ถ้ามีรูปภาพแนบมา
     if image_url:
         first_img = image_url.split(',')[0].strip()
         if first_img.startswith("http"):
-            messages.append({
-                "type": "image",
-                "originalContentUrl": first_img,
-                "previewImageUrl": first_img
-            })
+            messages.append({"type": "image", "originalContentUrl": first_img, "previewImageUrl": first_img})
         
-    payload = {
-        "to": target_id,
-        "messages": messages
-    }
-    
+    payload = {"to": target_id, "messages": messages}
     try:
         response = requests.post(url, headers=headers, json=payload)
-        if response.status_code != 200:
-            print(f"LINE Error: {response.text}")
         return response.status_code
-    except Exception as e:
-        print(f"Connection Error: {e}")
-        return None
-        
+    except: return None
+
 def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
     if not url_string:
         st.info(f"ไม่มี{caption_prefix}")
@@ -156,465 +132,244 @@ def display_images_with_link(url_string, caption_prefix="รูปภาพ"):
         st.code(url)
 
 def send_daily_summary(df, app_mode):
-    import pytz
-    from datetime import datetime
-    import pandas as pd
-    
-    # 1. ตั้งค่าเวลา
     tz = pytz.timezone('Asia/Bangkok')
     now = datetime.now(tz)
     today_str = now.strftime("%Y-%m-%d")
     today_display = now.strftime("%d/%m/%Y")
-    nick = st.session_state.get('nickname', 'Unknown')
+    nick = st.session_state.get('nick', 'Unknown')
 
-    # --- จุดแก้ไขที่ 1: ตรวจสอบคอลัมน์ Category (เคสเซนสิทิฟ) ---
-    cat_col = 'Category' if 'Category' in df.columns else 'category'
-    if cat_col not in df.columns:
-        st.error(f"❌ ไม่พบคอลัมน์ Category (คอลัมน์ที่มี: {', '.join(df.columns)})")
-        return
+    cat_col = 'category' if 'category' in df.columns else ('Category' if 'Category' in df.columns else '')
+    if not cat_col: return
         
-    # --- จุดแก้ไขที่ 2: ตรวจสอบคอลัมน์ user_time ---
-    time_col = 'user_time' if 'user_time' in df.columns else ('Timestamp' if 'Timestamp' in df.columns else 'timestamp')
+    time_col = 'user_time' if 'user_time' in df.columns else ('timestamp' if 'timestamp' in df.columns else 'Timestamp')
     df['date_only'] = pd.to_datetime(df[time_col]).dt.strftime('%Y-%m-%d')
     
-    # 2. กรองข้อมูล: งานวันนี้ + งานค้างสะสม
     condition = (df['date_only'] == today_str) | (df['status'].isin(['Pending', 'Wait Part']))
     df_report = df[condition].copy()
 
     if df_report.empty:
-        st.warning(f"📅 ไม่มีรายการงานของวันนี้และไม่มีงานค้างสะสม")
+        st.warning(f"📅 ไม่มีรายการงาน")
         return
 
-    # ฟังก์ชันสร้างข้อความ (ใช้ชื่อคอลัมน์ที่ยืดหยุ่น)
     def build_report_format(df_sec, section_name, unit_text):
         if df_sec.empty: return None
-        
-        msg = f"รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\n"
-        msg += f"ส่วนงาน: {section_name}\n"
+        msg = f"รายงานผลการ \"Repair\" ประจำวันที่ {today_display}\nส่วนงาน: {section_name}\n"
         msg += "--------------------------------\n"
-        
-        # ตรวจสอบชื่อคอลัมน์ Work Order
-        wo_col = 'work_order' if 'work_order' in df_sec.columns else 'work_order'
-        
+        wo_col = 'work_order'
         wo_list = df_sec[wo_col].unique()
         for wo in wo_list:
             if not wo: continue
             wo_data = df_sec[df_sec[wo_col] == wo]
-            
             total_wo = len(wo_data)
             p_pending = len(wo_data[wo_data['status'] == 'Pending'])
             p_wait = len(wo_data[wo_data['status'] == 'Wait Part'])
             p_done = len(wo_data[wo_data['status'].isin(['Complete', 'Scrap'])])
-            
-            msg += f"WO. {wo}\n"
-            msg += f"จำนวน{unit_text}ที่เสียทั้งหมด {total_wo} {unit_text}\n"
-            if p_pending > 0: msg += f"  - อยู่ระหว่างวิเคราะห์ {p_pending} {unit_text}\n"
-            if p_wait > 0: msg += f"  - รอพาร์ท {p_wait} {unit_text}\n"
-            if p_done > 0: msg += f"  - ซ่อมเสร็จ {p_done} {unit_text}\n"
+            msg += f"WO. {wo}\nจำนวน{unit_text}เสีย {total_wo}\n"
+            if p_pending > 0: msg += f" - วิเคราะห์ {p_pending}\n"
+            if p_wait > 0: msg += f" - รอพาร์ท {p_wait}\n"
+            if p_done > 0: msg += f" - เสร็จ {p_done}\n"
             msg += "\n"
-
-        # สรุปภาพรวม
-        total_all = len(df_sec)
-        total_pending = len(df_sec[df_sec['status'] == 'Pending'])
-        total_wait = len(df_sec[df_sec['status'] == 'Wait Part'])
-        total_done = len(df_sec[df_sec['status'].isin(['Complete', 'Scrap'])])
-        
-        msg += "--------------------------------\n"
-        msg += f"สรุปภาพรวม {section_name}\n"
-        msg += f"จำนวน{unit_text}ที่เสียทั้งหมด {total_all} {unit_text}\n"
-        if total_pending > 0: msg += f"  - อยู่ระหว่างวิเคราะห์ {total_pending} {unit_text}\n"
-        if total_wait > 0: msg += f"  - รอพาร์ท {total_wait} {unit_text}\n"
-        msg += f"  - ซ่อมเสร็จ Ok {total_done} {unit_text}\n"
-        msg += "--------------------------------\n"
-        msg += f"รายงานโดย: {nick}"
+        msg += "--------------------------------\nรายงานโดย: " + nick
         return msg
 
-    # --- 3. แยกส่งตามส่วนงาน ---
-    
-    # ส่ง PCBA
-    df_pcba_data = df_report[df_report[cat_col] == "PCBA"]
+    df_pcba_data = df_report[df_report[cat_col].str.upper() == "PCBA"]
     pcba_msg = build_report_format(df_pcba_data, "PCBA", "บอร์ด")
-    if pcba_msg:
-        send_line(pcba_msg, to_summary=True)
+    if pcba_msg: send_line(pcba_msg, to_summary=True)
 
-    # ส่ง Machine แยกตามราย Station
-    df_mac_data = df_report[df_report[cat_col] == "Machine"]
+    df_mac_data = df_report[df_report[cat_col].str.upper() == "MACHINE"]
     if not df_mac_data.empty:
-        stations = df_mac_data['work_name'].unique()
+        stations = df_mac_data['station'].unique()
         for stn in stations:
-            if not stn: continue
-            stn_data = df_mac_data[df_mac_data['work_name'] == stn]
+            stn_data = df_mac_data[df_mac_data['station'] == stn]
             stn_msg = build_report_format(stn_data, stn, "เครื่อง")
-            if stn_msg:
-                send_line(stn_msg, to_summary=True)
-
+            if stn_msg: send_line(stn_msg, to_summary=True)
     st.success("📢 รายงานถูกส่งเรียบร้อยแล้ว!")
 
-
-
-# --- ส่วนนี้ควรอยู่ด้านบนสุดของไฟล์ ---
+# --- 3. SESSION STATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
     st.session_state.nick = None
     st.session_state.app_mode = None
 
-# --- ส่วนของ Login UI ---
+# --- 4. LOGIN UI ---
 if not st.session_state.logged_in:
     _, center_col, _ = st.columns([1, 2, 1])
-    
     with center_col:
         st.title("🔐 Login System")
-        st.subheader("PCBA & Machine Repair Service")
-        
         with st.form("login_form"):
             user_input = st.text_input("👤 Username").strip()
             pass_input = st.text_input("🔑 Password", type="password").strip()
             mode_input = st.selectbox("⚙️ Mode", ["Machine", "PCBA"])
-            submit = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
-            
-            if submit:
-                if not user_input or not pass_input:
-                    st.warning("⚠️ กรุณากรอกทั้ง Username และ Password")
-                else:
-                    df_users = get_df("users")
-                    if not df_users.empty:
-                        # ทำความสะอาดข้อมูลใน DataFrame
-                        df_users['username'] = df_users['username'].astype(str).str.strip()
-                        
-                        # ค้นหา User (Case-sensitive)
-                        user_match = df_users[df_users['username'] == user_input]
-                        
-                        if not user_match.empty:
-                            row = user_match.iloc[0]
-                            found_role = None
-                            
-                            # ตรวจสอบสิทธิ์ตามลำดับความสำคัญ
-                            role_priority = [
-                                ("super admin", "password_super_admin"),
-                                ("admin", "password_admin"),
-                                ("tech", "password_tech"),
-                                ("user", "password_user")
-                            ]
-                            
-                            for role_name, col_name in role_priority:
-                                # ดึงค่าจาก DB และจัดการพวกค่าว่าง/NaN
-                                db_p = str(row.get(col_name, "")).strip()
-                                if db_p and db_p != "nan" and db_p == pass_input:
-                                    found_role = role_name
-                                    break
-                            
-                            if found_role:
-                                # บันทึกสถานะลง Session
-                                st.session_state.logged_in = True
-                                st.session_state.role = found_role
-                                st.session_state.app_mode = mode_input
-                                st.session_state.nick = row.get('nickname', user_input)
-                                
-                                st.success(f"✅ ยินดีต้อนรับคุณ {st.session_state.nick} (สิทธิ์: {found_role})")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("❌ รหัสผ่านไม่ถูกต้องสำหรับสิทธิ์ใดๆ")
-                        else:
-                            st.error("❌ ไม่พบชื่อผู้ใช้งานนี้ในระบบ")
-                    else:
-                        st.error("❌ ไม่สามารถดึงข้อมูลผู้ใช้งานได้ (Database Empty)")
+            if st.form_submit_button("เข้าสู่ระบบ", use_container_width=True):
+                df_users = get_df("users")
+                if not df_users.empty:
+                    df_users['username'] = df_users['username'].astype(str).str.strip()
+                    user_match = df_users[df_users['username'] == user_input]
+                    if not user_match.empty:
+                        row = user_match.iloc[0]
+                        found_role = None
+                        role_priority = [("super admin", "password_super_admin"), ("admin", "password_admin"), ("tech", "password_tech"), ("user", "password_user")]
+                        for role_name, col_name in role_priority:
+                            db_p = str(row.get(col_name, "")).strip()
+                            if db_p and db_p != "nan" and db_p == pass_input:
+                                found_role = role_name
+                                break
+                        if found_role:
+                            st.session_state.logged_in = True
+                            st.session_state.role = found_role
+                            st.session_state.app_mode = mode_input
+                            st.session_state.nick = row.get('nickname', user_input)
+                            st.success(f"✅ ยินดีต้อนรับคุณ {st.session_state.nick}")
+                            time.sleep(1); st.rerun()
+                        else: st.error("❌ รหัสผ่านไม่ถูกต้อง")
+                    else: st.error("❌ ไม่พบผู้ใช้งาน")
 
-
-# --- 3. MAIN APP CONTENT (เมื่อ Logged In แล้ว) ---
+# --- 5. MAIN CONTENT ---
 else: 
-    # --- 1. ประกาศตัวแปร ---
     role = st.session_state.role
     app_mode = st.session_state.app_mode
     nick = st.session_state.nick
-    unit = "บอร์ด" if app_mode == "PCBA" else "เครื่อง"
-
-    # โหลดข้อมูลหลัก (ตรวจสอบชื่อ Tab ให้ตรงกับใน Google Sheets)
+    
     try:
         ws_main = ss.worksheet("sheet1")
         df_all = get_df("sheet1")
     except Exception as e:
-        st.error(f"❌ ไม่สามารถเข้าถึงหน้า 'sheet1' ได้: {e}")
-        st.stop()
+        st.error(f"Error Sheet1: {e}"); st.stop()
 
-    # --- 4. SIDEBAR ---
     with st.sidebar:
         st.title(f"👤 {nick}")
         st.write(f"**Mode:** {app_mode} | **Role:** {role.upper()}")
         st.divider()
-        
-        st.subheader("📝 Quick Edit Status")
-        sn_edit_input = st.text_input("Scan SN to Edit Status", key="sb_sn_edit").strip()
-        if sn_edit_input:
-            sn_clean_edit = validate_sn(sn_edit_input)
-            edit_row = df_all[df_all['serial_number'] == sn_clean_edit]
-            
+        sn_edit = st.text_input("Scan SN to Edit Status").strip()
+        if sn_edit:
+            sn_c = validate_sn(sn_edit)
+            edit_row = df_all[df_all['serial_number'] == sn_c]
             if not edit_row.empty:
                 with st.expander("Update Status", expanded=True):
-                    current_stat = edit_row.iloc[-1]['status']
-                    stat_options = ["Pending", "Wait Part", "Complete", "Scrap"]
-                    idx_stat = stat_options.index(current_stat) if current_stat in stat_options else 0
-                    new_stat = st.selectbox("Status", stat_options, index=idx_stat)
-                    
-                    if st.button("บันทึกการเปลี่ยนสถานะ"):
-                        r_idx = edit_row.index[-1] + 2
-                        ws_main.update_acell(f'B{r_idx}', new_stat)
-                        st.success("อัปเดตสถานะสำเร็จ!"); time.sleep(1); st.rerun()
-            else:
-                st.warning("ไม่พบ SN นี้ในฐานข้อมูล")
-        
+                    new_st = st.selectbox("Status", ["Pending", "Wait Part", "Complete", "Scrap"])
+                    if st.button("บันทึก"):
+                        ridx = edit_row.index[-1] + 2
+                        ws_main.update_acell(f'B{ridx}', new_st)
+                        st.success("OK"); time.sleep(1); st.rerun()
         st.divider()
         if st.button("🚪 Log Out", use_container_width=True):
             st.session_state.logged_in = False
             st.rerun()
 
-    # --- 5. แท็บการทำงานหลักแยกตาม Role (Check Indentation Here) ---
-if role == "user":
+    # --- Role Based Logic (Correct Indentation) ---
+    if role == "user":
         st.header(f"🚀 Repair Portal ({app_mode})")
-        
-        if "uploader_key" not in st.session_state:
-            st.session_state.uploader_key = 0
-    
-        t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหาและติดตาม", "📋 ลงทะเบียน Model"])
+        if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
+        t1, t2, t3 = st.tabs(["➕ แจ้งซ่อมใหม่", "🔍 ค้นหา", "📋 ลงทะเบียน Model"])
         
         with t1:
             df_m = get_df("model_machine" if app_mode == "Machine" else "model_mat")
             df_st = get_df("station_dropdowns")
-            
-            with st.form("req_form", clear_on_submit=False):
+            with st.form("req_form"):
                 c1, c2 = st.columns(2)
-                
-                model_options = [""]
-                if not df_m.empty and 'model' in df_m.columns:
-                    model_options += df_m['model'].unique().tolist()
-                sel_m = c1.selectbox("Model", model_options)
-                
-                p_val = ""
-                if sel_m and not df_m.empty:
-                    match = df_m[df_m['model'] == sel_m]['product_name']
-                    p_val = match.values[0] if not match.empty else ""
-                
+                m_list = [""] + df_m['model'].unique().tolist() if not df_m.empty else [""]
+                sel_m = c1.selectbox("Model", m_list)
+                p_val = df_m[df_m['model'] == sel_m]['product_name'].values[0] if sel_m and not df_m.empty else ""
                 c1.text_input("Product", value=p_val, disabled=True)
-                sn_input = c1.text_input("Serial Number", key="sn_field").strip()
-                wo = c2.text_input("Work Order").strip().upper()
-                
-                stn_options = [""]
-                if not df_st.empty:
-                    target_col = 'station' if 'station' in df_st.columns else df_st.columns[0]
-                    stn_options += df_st[target_col].tolist()
-                
-                stat = c2.selectbox("Station", stn_options)
-                fail_th = c2.text_area("อาการเสีย (Problem Description)")
-                u_imgs = st.file_uploader("📸 แนบรูปภาพ", accept_multiple_files=True, key=f"user_upload_{st.session_state.uploader_key}")
-                
-                if st.form_submit_button("ยืนยันแจ้งซ่อม", use_container_width=True):
-                    if not re.match(r'^[a-zA-Z0-9-]+$', sn_input):
-                        st.error("❌ รูปแบบ SN ไม่ถูกต้อง")
-                    elif not (sel_m and sn_input and wo and stat):
-                        st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
-                    else:
-                        with st.spinner("กำลังบันทึก..."):
-                            sn = validate_sn(sn_input)
-                            fail_en = translate_to_en(fail_th)
-                            urls = upload_images(u_imgs, "REQ", sn) if u_imgs else ""
-                            new_row = [app_mode, "Pending", wo, sel_m, p_val, sn, stat, fail_en, get_now(), "", "", "", "", "", "", urls]
-                            ws_main.append_row(new_row)
-                            send_line(f"🚨 *New Job* ({app_mode})\nSN: {sn}\nModel: {sel_m}\nBy: {nick}", image_url=urls)
-                            st.session_state.uploader_key += 1 
-                            st.success("✅ บันทึกสำเร็จ!")
-                            time.sleep(1); st.rerun()
-
-        with t2:
-            st.subheader("🔍 ติดตามสถานะงานซ่อม")
-            search_sn = st.text_input("ป้อน Serial Number เพื่อค้นหา").strip()
-            if search_sn:
-                sn_q = validate_sn(search_sn)
-                results = df_all[df_all['serial_number'] == sn_q]
-                if not results.empty:
-                    st.dataframe(results, use_container_width=True)
-                else:
-                    st.info("🔎 ไม่พบข้อมูลการซ่อมสำหรับ SN นี้")
-
-        with t3:
-            st.subheader(f"📋 ลงทะเบียน Model ใหม่ ({app_mode})")
-            with st.form("user_add_new_model_form"):
-                if app_mode == "PCBA":
-                    u_new_m = st.text_input("PCBA Model Name").strip()
-                    u_new_p = st.text_input("Product Name").strip()
-                    if st.form_submit_button("บันทึกข้อมูล PCBA"):
-                        if u_new_m and u_new_p:
-                            ss.worksheet("model_mat").append_row([u_new_m, u_new_p])
-                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun()
-                else:
-                    u_m_model = st.text_input("Model Machine").strip()
-                    u_m_product = st.text_input("Product Name").strip()
-                    u_m_work = st.text_input("Station / Work Name").strip()
-                    if st.form_submit_button("บันทึกข้อมูล Machine"):
-                        if u_m_model and u_m_product and u_m_work:
-                            ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
-                            st.success("✅ สำเร็จ"); time.sleep(1); st.rerun()
-elif role == "tech":
-        
-        with st.sidebar:
-            st.markdown("---")
-            st.subheader("📊 Reporting System")
-            report_type = st.selectbox("เลือกส่วนงาน:", ["PCBA", "Machine"], index=0 if app_mode == "PCBA" else 1)
-            if st.button(f"📢 ส่งรายงาน {report_type}", use_container_width=True):
-                send_daily_summary(df_all, report_type)
-    
-        st.header("🔧 Technician Workspace")
-        t_search, t_new_pcba, t_add_m = st.tabs(["🔍 วิเคราะห์/แก้ไข", "📦 ส่งซ่อม PCBA", "⚙️ Master Data"])
-    
-        with t_search:
-            sn_scan = st.text_input("🔍 Scan SN", key="tech_sn_input").strip()
-            if sn_scan:
-                sn_clean = validate_sn(sn_scan)
-                job = df_all[df_all['serial_number'] == sn_clean]
-                if not job.empty:
-                    j = job.iloc[-1]
-                    ridx = job.index[-1] + 2 
-                    st.info(f"📁 Category: {j['category']} | ⚠️ Problem: {j.get('failure')}")
-                    with st.expander("🖼️ ดูรูปภาพจาก User"):
-                        display_images_with_link(j.get('user_image', ''), "รูปภาพอาการเสีย")
-                    
-                    with st.form("tech_update"):
-                        p_name_input = st.text_input("Waiting Part Name", value=str(j.get('wait_part_name', "")))
-                        stat_list = ["Complete", "Scrap", "Wait Part"]
-                        res = st.radio("Status:", stat_list, horizontal=True)
-                        cls = st.selectbox("Classification", [""] + get_df("class_dropdowns")['classification'].tolist())
-                        case_th = st.text_input("Root Cause")
-                        act_th = st.text_area("Action Taken", value=str(j.get('action', "")))
-                        tech_imgs = st.file_uploader("📸 รูปปิดงาน", accept_multiple_files=True)
-                        
-                        if st.form_submit_button("บันทึกข้อมูล"):
-                            if (res == "Wait Part" and p_name_input) or (res in ["Complete", "Scrap"] and case_th and act_th):
-                                with st.spinner("บันทึก..."):
-                                    case_en = translate_to_en(case_th)
-                                    act_en = translate_to_en(act_th)
-                                    t_urls = upload_images(tech_imgs, "FIX", sn_clean)
-                                    ws_main.update_acell(f'B{ridx}', res)
-                                    ws_main.update(f'J{ridx}:M{ridx}', [[case_en, act_en, cls, p_name_input]])
-                                    ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
-                                    if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
-                                    send_line(f"✅ Job Closed!\nSN: {sn_clean}\nBy: {nick}")
-                                    st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                else: st.warning("ไม่พบข้อมูล")
-
-        with t_new_pcba:
-            st.subheader("📝 ออกใบแจ้งซ่อม PCBA")
-            sn_machine_ref = st.text_input("สแกน SN เครื่องจักร", key="sn_ref")
-            ref_data = {}
-            if sn_machine_ref:
-                machine_job = df_all[df_all['serial_number'] == validate_sn(sn_machine_ref)]
-                if not machine_job.empty:
-                    m_last = machine_job.iloc[-1]
-                    ref_data = {"work_order": m_last.get('work_order', ''), "station": m_last.get('station', ''), "user_image": m_last.get('user_image', '')}
-                    st.success(f"🔗 เชื่อมโยง WO: {ref_data['work_order']}")
-
-            with st.form("new_pcba_from_machine"):
-                c1, c2 = st.columns(2)
-                df_model_mat = get_df("model_mat")
-                selected_pcba_model = c1.selectbox("เลือก Model PCBA", [""] + df_model_mat['model'].dropna().unique().tolist())
-                sn_pcba = c1.text_input("สแกน SN บอร์ด").strip()
-                stn_name = c2.text_input("Station Name", value=ref_data.get('station', ''))
-                pcba_failure = c2.text_area("อาการเสีย")
-                
-                if st.form_submit_button("🚀 ส่งซ่อม PCBA"):
-                    if selected_pcba_model and sn_pcba and pcba_failure:
-                        p_name = df_model_mat[df_model_mat['model'] == selected_pcba_model].iloc[0]['product_name']
-                        new_pcba_job = ["PCBA", "Pending", ref_data.get('work_order', ''), selected_pcba_model, p_name, sn_pcba, stn_name, pcba_failure, get_now(), "", "", "", "", "", "", ref_data.get('user_image', '')]
-                        ws_main.append_row(new_pcba_job)
-                        send_line(f"📥 New PCBA Repair!\nSN: {sn_pcba}")
+                sn_in = c1.text_input("Serial Number").strip()
+                wo_in = c2.text_input("Work Order").strip().upper()
+                stn_list = [""] + df_st.iloc[:,0].tolist() if not df_st.empty else [""]
+                stat_in = c2.selectbox("Station", stn_list)
+                fail_in = c2.text_area("อาการเสีย")
+                u_imgs = st.file_uploader("📸 รูปภาพ", accept_multiple_files=True, key=f"u_{st.session_state.uploader_key}")
+                if st.form_submit_button("ยืนยันแจ้งซ่อม"):
+                    if sel_m and sn_in and wo_in:
+                        sn = validate_sn(sn_in)
+                        urls = upload_images(u_imgs, "REQ", sn) if u_imgs else ""
+                        new_row = [app_mode, "Pending", wo_in, sel_m, p_val, sn, stat_in, translate_to_en(fail_in), get_now(), "", "", "", "", "", "", urls]
+                        ws_main.append_row(new_row)
+                        send_line(f"🚨 New Job: {sn}", image_url=urls)
+                        st.session_state.uploader_key += 1
                         st.success("สำเร็จ!"); time.sleep(1); st.rerun()
 
-        with t_add_m:
-            st.subheader(f"⚙️ เพิ่ม Master Data ({app_mode})")
-            with st.form("tech_add_model_form"):
-                t_m = st.text_input("Model Name").strip()
-                t_p = st.text_input("Product Name").strip()
-                if app_mode == "Machine":
-                    t_w = st.text_input("Work Name").strip()
-                    if st.form_submit_button("บันทึก Machine"):
-                        ss.worksheet("model_machine").append_row([t_m, t_p, t_w]); st.success("OK"); st.rerun()
-                else:
-                    if st.form_submit_button("บันทึก PCBA"):
-                        ss.worksheet("model_mat").append_row([t_m, t_p]); st.success("OK"); st.rerun()
-                        
-elif role in ["admin", "super admin"]:
-        st.header(f"🏛️ Executive Dashboard")
+        with t2:
+            s_sn = st.text_input("ค้นหา SN")
+            if s_sn: st.dataframe(df_all[df_all['serial_number'] == validate_sn(s_sn)])
+
+        with t3:
+            with st.form("add_model_user"):
+                m_n = st.text_input("Model Name")
+                p_n = st.text_input("Product Name")
+                if st.form_submit_button("บันทึก"):
+                    target = "model_machine" if app_mode == "Machine" else "model_mat"
+                    ss.worksheet(target).append_row([m_n, p_n])
+                    st.success("OK"); time.sleep(1); st.rerun()
+
+    elif role == "tech":
+        st.header("🔧 Technician Workspace")
+        if st.sidebar.button(f"📢 ส่งรายงาน {app_mode}"): send_daily_summary(df_all, app_mode)
         
-        df_all_modes = df_all.copy() 
-        
-        m1, m2, m3, m4 = st.columns(4)
-        total_jobs = len(df_all_modes)
-        pending = len(df_all_modes[df_all_modes['status'] == 'Pending'])
-        wait_part = len(df_all_modes[df_all_modes['status'] == 'Wait Part'])
-        complete = len(df_all_modes[df_all_modes['status'].isin(['Complete', 'Scrap'])])
-        
-        m1.metric("งานรวมทั้งหมด", f"{total_jobs} รายการ")
-        m2.metric("⏳ Pending", pending)
-        m3.metric("🛠️ Wait Part", wait_part)
-        m4.metric("✅ Done/Scrap", complete)
-
-        tabs = st.tabs(["💻 PCBA Works", "🏗️ Machine Works", "🖼️ Gallery", "⚙️ Management"])
-        
-        with tabs[0]: 
-            st.subheader("รายการงาน PCBA")
-            df_pcba = df_all_modes[df_all_modes['category'] == 'PCBA']
-            st.dataframe(df_pcba.tail(100), use_container_width=True)
-            if st.button("📊 สรุป PCBA ลง LINE", key="line_pcba"):
-                send_daily_summary(df_all_modes, "PCBA")
-
-        with tabs[1]: 
-            st.subheader("รายการงาน Machine")
-            df_machine = df_all_modes[df_all_modes['category'] == 'Machine']
-            st.dataframe(df_machine.tail(100), use_container_width=True)
-            if st.button("📊 สรุป Machine ลง LINE", key="line_machine"):
-                send_daily_summary(df_all_modes, "Machine")
-
-        with tabs[2]: 
-            st.subheader("คลังรูปภาพงานซ่อมทั้งหมด")
-            st.info("ระบบกำลังดึงข้อมูลรูปภาพจากคลังข้อมูลรวม...")
-
-        with tabs[3]: 
-            st.subheader("📝 Edit Raw Data")
-            edited_df = st.data_editor(df_all_modes.tail(50), use_container_width=True)
-            
-            if st.session_state.role == "super admin":
-                st.divider()
-                st.subheader("🔑 User Management")
-                df_u = get_df("users")
-                u_col1, u_col2 = st.columns([1.5, 1])
-                
-                with u_col1:
-                    st.write("📋 รายชื่อผู้ใช้งาน")
-                    st.dataframe(df_u, use_container_width=True)
-                    with st.expander("🗑️ ลบผู้ใช้งาน"):
-                        user_to_delete = st.selectbox("เลือก ID ที่ต้องการลบ", df_u['username'].unique())
-                        confirm_delete = st.checkbox(f"ยืนยันลบ {user_to_delete}")
-                        if st.button("ลบข้อมูล", type="primary") and confirm_delete:
-                            try:
-                                row_idx = df_u[df_u['username'] == user_to_delete].index[0] + 2
-                                ss.worksheet("users").delete_rows(int(row_idx))
-                                st.success("ลบเรียบร้อยแล้ว"); time.sleep(1); st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-
-                with u_col2:
-                    with st.form("add_user_form"):
-                        st.write("➕ เพิ่มสมาชิกใหม่")
-                        nu = st.text_input("Username")
-                        np = st.text_input("Password", type="password")
-                        nn = st.text_input("Nickname")
-                        nr = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
-                        
+        t_fix, t_pcba, t_master = st.tabs(["🔍 แก้ไขงาน", "📦 ส่งซ่อม PCBA", "⚙️ Master"])
+        with t_fix:
+            sn_s = st.text_input("🔍 Scan SN").strip()
+            if sn_s:
+                sn_c = validate_sn(sn_s)
+                job = df_all[df_all['serial_number'] == sn_c]
+                if not job.empty:
+                    j = job.iloc[-1]; ridx = job.index[-1] + 2
+                    display_images_with_link(j.get('user_image', ''))
+                    with st.form("tech_update"):
+                        p_name = st.text_input("Wait Part Name", value=str(j.get('wait_part_name', "")))
+                        res = st.radio("Status:", ["Complete", "Scrap", "Wait Part"], horizontal=True)
+                        cls = st.selectbox("Classification", [""] + get_df("class_dropdowns").iloc[:,0].tolist())
+                        rc = st.text_input("Root Cause")
+                        act = st.text_area("Action", value=str(j.get('action', "")))
+                        t_imgs = st.file_uploader("📸 รูปปิดงาน", accept_multiple_files=True)
                         if st.form_submit_button("บันทึก"):
-                            if nu and np and nn:
-                                new_row = [nu, "", "", "", "", nr, nn]
-                                role_map = {"user": 1, "tech": 2, "admin": 3, "super admin": 4}
-                                new_row[role_map.get(nr)] = np
-                                ss.worksheet("users").append_row(new_row)
-                                st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
-                            else:
-                                st.warning("กรุณากรอกข้อมูลให้ครบ")
+                            t_urls = upload_images(t_imgs, "FIX", sn_c)
+                            ws_main.update_acell(f'B{ridx}', res)
+                            ws_main.update(f'J{ridx}:M{ridx}', [[translate_to_en(rc), translate_to_en(act), cls, p_name]])
+                            ws_main.update(f'N{ridx}:O{ridx}', [[nick, get_now()]])
+                            if t_urls: ws_main.update_acell(f'Q{ridx}', t_urls)
+                            st.success("บันทึกสำเร็จ!"); time.sleep(1); st.rerun()
+
+        with t_pcba:
+            sn_ref = st.text_input("สแกน SN เครื่องจักร (Ref)")
+            with st.form("pcba_repair"):
+                df_m_mat = get_df("model_mat")
+                sel_p = st.selectbox("Model PCBA", [""] + df_m_mat['model'].unique().tolist())
+                sn_p = st.text_input("SN บอร์ด")
+                if st.form_submit_button("ส่งซ่อม PCBA"):
+                    p_n = df_m_mat[df_m_mat['model'] == sel_p].iloc[0]['product_name']
+                    ws_main.append_row(["PCBA", "Pending", "", sel_p, p_n, validate_sn(sn_p), "", "", get_now()])
+                    st.success("OK"); time.sleep(1); st.rerun()
+
+        with t_master:
+            with st.form("master_add"):
+                tm, tp = st.text_input("Model"), st.text_input("Product")
+                if st.form_submit_button("เพิ่ม"):
+                    ss.worksheet("model_machine" if app_mode == "Machine" else "model_mat").append_row([tm, tp])
+                    st.success("OK"); st.rerun()
+
+    elif role in ["admin", "super admin"]:
+        st.header("🏛️ Executive Dashboard")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("งานรวม", len(df_all))
+        m2.metric("⏳ Pending", len(df_all[df_all['status'] == 'Pending']))
+        m3.metric("🛠️ Wait Part", len(df_all[df_all['status'] == 'Wait Part']))
+        m4.metric("✅ Done", len(df_all[df_all['status'].isin(['Complete', 'Scrap'])]))
+        
+        adm_t = st.tabs(["💻 PCBA", "🏗️ Machine", "⚙️ Management"])
+        with adm_t[0]: 
+            st.dataframe(df_all[df_all['category'] == 'PCBA'])
+        with adm_t[2]:
+            st.subheader("📝 Raw Data Edit")
+            st.data_editor(df_all.tail(50))
+            if role == "super admin":
+                df_u = get_df("users")
+                st.dataframe(df_u)
+                with st.form("add_u"):
+                    nu, np, nn = st.text_input("User"), st.text_input("Pass"), st.text_input("Nick")
+                    nr = st.selectbox("Role", ["user", "tech", "admin", "super admin"])
+                    if st.form_submit_button("Add User"):
+                        new_u = [nu, "", "", "", "", nr, nn]
+                        rmap = {"user": 1, "tech": 2, "admin": 3, "super admin": 4}
+                        new_u[rmap[nr]] = np
+                        ss.worksheet("users").append_row(new_u)
+                        st.success("OK"); st.rerun()
