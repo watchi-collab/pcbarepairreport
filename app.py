@@ -370,7 +370,7 @@ else:
             st.rerun()
 
     # --- 5. แท็บการทำงานหลักแยกตาม Role (Check Indentation Here) ---
-    if role == "user":
+if role == "user":
         st.header(f"🚀 Repair Portal ({app_mode})")
         
         if "uploader_key" not in st.session_state:
@@ -463,7 +463,7 @@ else:
                         if u_m_model and u_m_product and u_m_work:
                             ss.worksheet("model_machine").append_row([u_m_model, u_m_product, u_m_work])
                             st.success("✅ ลงทะเบียน Machine สำเร็จ")
-                            time.sleep(1); st.rerun()
+                            time.sleep(1); st.rerun()  
 elif role == "tech":
         with st.sidebar:
             st.markdown("---")
